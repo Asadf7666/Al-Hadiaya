@@ -102,7 +102,9 @@ class Online:
             raise ValueError('This local-device operation is unavailable in the hosted review.')
         if action=='settings':data={k:v for k,v in data.items() if k in SETTINGS}
         if role in ('manager','cashier'):
-            if action in ('sale','purchase','expense','adjust'):data['location']=user['location']
+            if action in ('sale','purchase','expense','adjust','product'):data['location']=user['location']
+            if action=='import_products':
+                data['rows']=[{**row,'location':user['location']} for row in data.get('rows',[])]
             if action=='transfer' and data.get('source')!=user['location']:raise PermissionError('Transfer stock from your assigned location.')
             if action=='reverse':
                 with self.shop.connect() as db:
@@ -225,7 +227,11 @@ def main():
     def periodic():
         while True:
             time.sleep(300)
-            try:online.shop.backup(local_only=True)
+            try:
+                online.shop.backup(local_only=True)
+                online.shop.daily_update()
+                from notifications import process_outbox
+                process_outbox(online.shop)
             except Exception:pass
     threading.Thread(target=periodic,daemon=True).start();server.serve_forever()
 if __name__=='__main__':main()

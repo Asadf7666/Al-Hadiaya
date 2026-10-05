@@ -24,3 +24,5 @@ Passed three disconnected counters selling reserved/unallocated stock without ov
 ## AWS Windows/Linux checks
 
 37 automated tests passed on Windows Server 2022 with the pinned Python 3.14.8 embedded runtime and on the temporary Amazon Linux host. Windows DPAPI encryption/decryption roundtrip passed. Testing exposed and fixed delayed SQLite connection closure causing Windows file locks; restore and backup now close their handles. The web server also accepts bounded chunked bodies from an HTTPS reverse proxy. These are server OS checks; physical Windows 10/11 devices and installer execution remain unverified.
+
+The HTTPS hosted browser review passed owner login, primary screens, a saved demo invoice, backup download, rejected requests without CSRF verification, blocked unauthenticated state access, and mobile account/location controls at 390px. No JavaScript errors were reported. The temporary Windows VM and upload bucket were deleted; a three-hour host shutdown with EC2 terminate-on-shutdown plus a follow-up cleanup automation was configured for the review VM.
