@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.sqlite3
+*.sqlite3-*
+*.db
+.env
+.env.*
+*credential*
+TEST-VM-RESOURCES.json
+REVIEW-RESOURCES.json
+review-access.json
+cloud/data/
+*.log
