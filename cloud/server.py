@@ -188,6 +188,11 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/logout':
                 with self.online.shop.connect() as db:db.execute('DELETE FROM web_sessions WHERE digest=?',(user['digest'],))
                 return self.send(200,{'ok':True},headers={'Set-Cookie':'ah_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'+('; Secure' if self.online.secure else '')})
+            if path=='/api/location':
+                if user['role']!='owner':raise PermissionError('Only owners can switch review locations.')
+                if data.get('location') not in ('Warehouse','Outlet'):raise ValueError('Choose a valid location.')
+                with self.online.shop.connect() as db:db.execute('UPDATE web_users SET location=? WHERE id=?',(data['location'],user['id']))
+                return self.send(200,{'ok':True})
             if path=='/api/staff_user':
                 if user['role']!='owner':raise PermissionError('Owner permission required.')
                 self.online.user(data);return self.send(200,{'ok':True})

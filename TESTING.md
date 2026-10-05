@@ -1,4 +1,4 @@
-# Verification of pilot 0.2.0
+# Verification of pilot 0.2.1
 
 Executed in the Linux build workspace on 5 October 2026.
 
@@ -20,3 +20,7 @@ This release is unsigned and remains a pilot. Review README's explicit feature b
 ## Version 0.2 additions
 
 Passed three disconnected counters selling reserved/unallocated stock without overselling; unused allowance release; profile edits preserving credit/history and credit-limit enforcement. Seven additional WhatsApp tests verify number normalisation, daily queue deduplication, internal sending, purchase/transfer alerts, customer/internal opt-out cancellation, missing-token offline retention, and uncertain-send suppression. Delivery calls are mocked: no real WhatsApp messages were sent. Browser testing opened the WhatsApp settings, added an opted-in internal recipient and rendered the queue without JavaScript errors. Actual Meta account/templates/network delivery and Windows DPAPI execution remain unverified.
+
+## AWS Windows/Linux checks
+
+37 automated tests passed on Windows Server 2022 with the pinned Python 3.14.8 embedded runtime and on the temporary Amazon Linux host. Windows DPAPI encryption/decryption roundtrip passed. Testing exposed and fixed delayed SQLite connection closure causing Windows file locks; restore and backup now close their handles. The web server also accepts bounded chunked bodies from an HTTPS reverse proxy. These are server OS checks; physical Windows 10/11 devices and installer execution remain unverified.

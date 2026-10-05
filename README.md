@@ -1,10 +1,10 @@
-# Al Hidaya Traders — Shop Manager 0.2.0
+# Al Hidaya Traders — Shop Manager 0.2.1
 
 A functional **pilot**, built for an Indian trading warehouse that also serves retail customers, plus a separate takeaway café/shop outlet. Works locally without internet; English UI with Al Hidaya black-and-gold branding. This is an owned local application, with no app account, subscription, telemetry or hosted application service.
 
 ## Install on Windows
 
-1. Download `AlHidayaTraders-Setup-0.2.0.exe` from `dist/`.
+1. Download `AlHidayaTraders-Setup-0.2.1.exe` from `dist/`.
 2. Run it on **64-bit Windows 10 or Windows 11**. It installs for the current Windows account; administrator rights and a separate Python installation are not required.
 3. Open **Al Hidaya Traders** from the desktop or Start Menu. Its interface opens in your default browser, backed by a local process on `127.0.0.1:8765`. Internet is not required to open or use it.
 4. Open **Settings & sync**. Select **First/main warehouse PC** on exactly one PC, and **Join the existing business** on all additional PCs. Choose **Warehouse** on the warehouse PC and **Outlet** on the outlet PC. Warehouse setup automatically adds 379 product templates. The outlet receives the same catalogue through sync.
@@ -119,3 +119,9 @@ Choose **Explore sample shop** while the database is empty and unassigned. Sampl
 See `packaging/build.py` for reproducible bundled-runtime installer builds (NSIS required). `packaging/build-windows.bat` runs it on a Windows build machine with Python and NSIS; those tools are **not needed on shop PCs**. The builder verifies the pinned embedded runtime SHA-256 before packaging.
 
 Research and the choices behind this pilot are documented in `RESEARCH.md`.
+
+## Hosted review (0.2.1)
+
+The optional cloud/server.py serves the public marketing page and a login-protected online copy of the shop manager. It uses a central SQLite database on one small server, with owner, manager, cashier and viewer accounts, assigned locations, session expiry, password hashing, CSRF checks and server-side role enforcement. It binds to localhost behind Caddy HTTPS. This is a review implementation, not the finished scalable AWS platform. Hosted data is separate from desktop databases; desktop-to-server sync, live WhatsApp delivery webhooks and production deployment/recovery are not yet connected. The browser review needs internet; offline billing remains in the Windows app.
+
+The user requested a three-hour temporary AWS review. Temporary addresses, passwords and AWS resource records are excluded from Git. The supplied repository is currently public.
