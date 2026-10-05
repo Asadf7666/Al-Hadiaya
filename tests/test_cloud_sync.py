@@ -81,9 +81,10 @@ class ConnectionTests(unittest.TestCase):
   milk=self.web.shop.act('product',dict(name='Milk',sku='MILK',category='Ingredients',unit='ml',kind='ingredient',price=0,cost=.1,stock=1000,location='Outlet'))['id']
   coffee=self.web.shop.act('product',dict(name='Coffee',sku='COFFEE',category='Coffee',unit='cup',kind='recipe',price=50,cost=0,stock=0,location='Outlet'))['id']
   self.web.shop.act('recipe',dict(product_id=coffee,items=[dict(ingredient_id=milk,quantity=150)]))
-  a=self.till(location='Outlet');self.sale(a,3,coffee,'Outlet')
+  a=self.till(location='Outlet');bill=a.act('sale',dict(location='Outlet',payment='Cash',items=[dict(product_id=coffee,quantity=1),dict(product_id=coffee,quantity=2)]))['id']
   with self.assertRaises(ValueError):self.sale(a,1,coffee,'Outlet')
   a.sync();self.assertEqual(self.quantity(self.web.shop,milk,'Outlet'),550)
+  a.act('reverse',dict(id=bill,reason='Recipe reversal'));a.sync();self.assertEqual(self.quantity(self.web.shop,milk,'Outlet'),1000)
  def test_forged_catalogue_event_rejected_and_stock_rolled_back(self):
   a=self.till();self.sale(a)
   with a.connect() as db:r=db.execute('SELECT * FROM sync_events ORDER BY date DESC LIMIT 1').fetchone();device=a.settings(db)['device_id'];business=a.settings(db)['cloud_business_id']

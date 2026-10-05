@@ -213,10 +213,10 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/pair-code':
                 if user['role']!='owner':raise PermissionError('Owner permission required.')
                 return self.send(200,self.online.hub.code(data.get('location'),data.get('percentage',50)))
-            if path=='/api/peer-disable':
+            if path in ('/api/peer-disable','/api/peer-enable'):
                 if user['role']!='owner':raise PermissionError('Owner permission required.')
-                with self.online.shop.connect() as db:db.execute('UPDATE cloud_peers SET active=0 WHERE device_id=?',(data.get('device_id'),))
-                return self.send(200,{'message':'Sync disabled. Reserved stock remains protected until the PC releases or reconciles it.'})
+                with self.online.shop.connect() as db:db.execute('UPDATE cloud_peers SET active=? WHERE device_id=?',(int(path.endswith('peer-enable')),data.get('device_id')))
+                return self.send(200,{'message':'Sync enabled again.' if path.endswith('peer-enable') else 'Sync disabled. Reserved stock remains protected until the PC releases or reconciles it.'})
             if path=='/api/location':
                 if user['role']!='owner':raise PermissionError('Only owners can switch review locations.')
                 if data.get('location') not in ('Warehouse','Outlet'):raise ValueError('Choose a valid location.')

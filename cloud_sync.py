@@ -141,17 +141,20 @@ class Hub:
             if not math.isfinite(ds) or not math.isfinite(da):raise ValueError('Invalid stock quantities.')
             if ds and abs(ds-da)>0.000001:raise ValueError('Stock consumption must use this PC’s reserved allowance.')
             if (ds>0 or da>0) and not reversed_any:raise ValueError('Only a valid sale reversal can restore a till allowance.')
-        movement_deltas={}
+        movement_deltas={};reversal_deltas={}
         for row in p['append'].get('movements',[]):
             if row['location']!=loc:raise ValueError('Movement belongs to another location.')
             reference=row['reference'];document_id=reference[4:] if reference.startswith('REV-') else reference
             if document_id not in documents:raise ValueError('Movement must belong to this event’s invoice.')
             q=row['quantity']
             if documents[document_id]['reversed']:
-                original=db.execute('SELECT COALESCE(SUM(quantity),0) FROM movements WHERE reference=? AND product_id=? AND location=?',(document_id,row['product_id'],loc)).fetchone()[0]
-                if abs(q+original)>0.000001:raise ValueError('Reversal must restore the original stock consumption.')
+                key=(document_id,row['product_id'])
+                reversal_deltas[key]=reversal_deltas.get(key,0)+q
             if not math.isfinite(q) or (q>0)!=bool(documents[document_id]['reversed']):raise ValueError('Movement direction must match sale or reversal.')
             movement_deltas[row['product_id']]=movement_deltas.get(row['product_id'],0)+q
+        for (document_id,pid),quantity in reversal_deltas.items():
+            original=db.execute('SELECT COALESCE(SUM(quantity),0) FROM movements WHERE reference=? AND product_id=? AND location=?',(document_id,pid,loc)).fetchone()[0]
+            if abs(quantity+original)>0.000001:raise ValueError('Reversal must restore the original stock consumption.')
         for pid in set(stock_deltas)|set(movement_deltas):
             if abs(stock_deltas.get(pid,0)-movement_deltas.get(pid,0))>0.000001:raise ValueError('Stock movement and balance must agree.')
         for row in p['append'].get('lines',[]):
