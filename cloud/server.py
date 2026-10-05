@@ -28,6 +28,8 @@ def password_hash(password,salt=None):
 class Online:
     def __init__(self,folder,origin,secure=True):
         self.shop=Shop(folder);self.origin=origin.rstrip('/');self.secure=secure
+        from cloud_sync import Hub
+        self.hub=Hub(self.shop)
         self.failed={};self.lock=threading.RLock()
         with self.shop.connect() as db:
             db.executescript('''CREATE TABLE IF NOT EXISTS web_users(id INTEGER PRIMARY KEY,username TEXT UNIQUE,name TEXT,role TEXT,location TEXT,salt TEXT,password_hash TEXT,active INTEGER DEFAULT 1);
@@ -72,7 +74,7 @@ class Online:
             row=db.execute('SELECT u.id,u.username,u.name,u.role,u.location,s.csrf,s.digest FROM web_sessions s JOIN web_users u ON u.id=s.user_id WHERE s.digest=? AND s.expires>? AND u.active=1',(hashlib.sha256(token.value.encode()).hexdigest(),time.time())).fetchone()
             return dict(row) if row else None
     def state(self,user):
-        result=self.shop.state();s=result['settings']
+        result=self.shop.state();s=result['settings'];allocated=result['allocations']
         for key in ('sync_folder','backup_folder','last_backup','last_sync'):s[key]=''
         result['local']=False;result['online']=True;result['web_user']={k:user[k] for k in ('username','name','role','location')}
         s['device_location']=user['location']
@@ -81,6 +83,8 @@ class Online:
             for key in tuple(s):
                 if key.startswith('whatsapp_'):s[key]=False if isinstance(s[key],bool) else ''
             result['devices']=[];result['allocations']=[];result['sync_errors']=[]
+            for r in result['stocks']:
+                r['quantity']=max(0,r['quantity']-sum(a['quantity'] for a in allocated if a['product_id']==r['product_id'] and a['location']==r['location']))
         if user['role'] in ('cashier','viewer'):
             result['stocks']=[r for r in result['stocks'] if r['location']==user['location']]
             for p in result['products']:
@@ -98,7 +102,7 @@ class Online:
         if role=='viewer':raise PermissionError('This account is read-only.')
         if role=='cashier' and action not in CASHIER:raise PermissionError('Cashier permission does not allow this operation.')
         if role=='manager' and action not in MANAGER:raise PermissionError('Owner permission is required.')
-        if action in ('sync','allocate','release_allocation','shutdown','demo','catalog'):
+        if action in ('sync','shutdown','demo','catalog','cloud_pair'):
             raise ValueError('This local-device operation is unavailable in the hosted review.')
         if action=='settings':data={k:v for k,v in data.items() if k in SETTINGS}
         if role in ('manager','cashier'):
@@ -135,11 +139,20 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/':return self.send(200,(ROOT/'marketing/index.html').read_bytes(),'text/html; charset=utf-8')
         if path=='/login':return self.send(200,LOGIN.format(error=''),'text/html; charset=utf-8')
         if path=='/health':return self.send(200,{'status':'ok'})
+        downloads={'/downloads/AlHidayaTraders-Setup-0.3.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.3.0.zip':'application/zip'}
+        if path in downloads:
+            file=ROOT/'dist'/Path(path).name
+            if not file.is_file():return self.send(404,{'error':'Download is being prepared.'})
+            return self.send(200,file.read_bytes(),downloads[path],{'Content-Disposition':'attachment; filename="'+file.name+'"'})
         if path=='/style.css':return self.send(200,(ROOT/'static/style.css').read_bytes(),'text/css')
         if not user:
             return self.send(401,{'error':'Sign in again.'}) if path.startswith('/api/') else self.redirect('/login')
         if path=='/api/session':return self.send(200,{'token':user['csrf']})
         if path=='/api/state':return self.send(200,self.online.state(user))
+        if path=='/api/peers':
+            if user['role']!='owner':return self.send(403,{'error':'Owner permission required.'})
+            with self.online.shop.connect() as db:rows=[dict(r) for r in db.execute('SELECT device_id,name,location,active,last_contact FROM cloud_peers')]
+            return self.send(200,rows)
         if path=='/api/users':
             if user['role']!='owner':return self.send(403,{'error':'Owner permission required.'})
             with self.online.shop.connect() as db:rows=[dict(r) for r in db.execute('SELECT id,username,name,role,location,active FROM web_users')]
@@ -156,7 +169,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send(404,{'error':'Not found'})
     def do_POST(self):
         path=urlparse(self.path).path
-        if self.headers.get('Origin')!=self.online.origin:return self.send(403,{'error':'Origin rejected.'})
+        device_request=path in ('/api/device-pair','/api/device-sync')
+        if not device_request and self.headers.get('Origin')!=self.online.origin:return self.send(403,{'error':'Origin rejected.'})
         try:
             self.connection.settimeout(15)
             if self.headers.get('Transfer-Encoding','').lower()=='chunked':
@@ -165,7 +179,7 @@ class Handler(BaseHTTPRequestHandler):
                     line=self.rfile.readline(128)
                     if not line.endswith(b'\r\n'):raise ValueError('Invalid request encoding.')
                     length=int(line.split(b';')[0].strip(),16)
-                    if length<0 or size+length>1000000:raise ValueError('Request too large.')
+                    if length<0 or size+length>3000000:raise ValueError('Request too large.')
                     if not length:
                         if self.rfile.readline(8192)!=b'\r\n':raise ValueError('Request trailers are not accepted.')
                         break
@@ -175,9 +189,15 @@ class Handler(BaseHTTPRequestHandler):
                 raw=b''.join(chunks)
             else:
                 size=int(self.headers.get('Content-Length',0))
-                if size<1 or size>1000000:raise ValueError('Invalid request size.')
+                if size<1 or size>3000000:raise ValueError('Invalid request size.')
                 raw=self.rfile.read(size)
                 if len(raw)!=size:raise ValueError('Incomplete request.')
+            if device_request:
+                data=json.loads(raw)
+                if path=='/api/device-pair':return self.send(200,self.online.hub.pair(data))
+                authorization=self.headers.get('Authorization','')
+                if not authorization.startswith('Bearer '):raise PermissionError('A paired PC credential is required.')
+                return self.send(200,self.online.hub.exchange(authorization[7:],data))
             if path=='/login':
                 fields=parse_qs(raw.decode());ip=self.headers.get('X-Forwarded-For',self.client_address[0]).split(',')[0]
                 token=self.online.login(fields.get('username',[''])[0],fields.get('password',[''])[0],ip)
@@ -190,6 +210,13 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/logout':
                 with self.online.shop.connect() as db:db.execute('DELETE FROM web_sessions WHERE digest=?',(user['digest'],))
                 return self.send(200,{'ok':True},headers={'Set-Cookie':'ah_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'+('; Secure' if self.online.secure else '')})
+            if path=='/api/pair-code':
+                if user['role']!='owner':raise PermissionError('Owner permission required.')
+                return self.send(200,self.online.hub.code(data.get('location'),data.get('percentage',50)))
+            if path=='/api/peer-disable':
+                if user['role']!='owner':raise PermissionError('Owner permission required.')
+                with self.online.shop.connect() as db:db.execute('UPDATE cloud_peers SET active=0 WHERE device_id=?',(data.get('device_id'),))
+                return self.send(200,{'message':'Sync disabled. Reserved stock remains protected until the PC releases or reconciles it.'})
             if path=='/api/location':
                 if user['role']!='owner':raise PermissionError('Only owners can switch review locations.')
                 if data.get('location') not in ('Warehouse','Outlet'):raise ValueError('Choose a valid location.')

@@ -125,3 +125,16 @@ Research and the choices behind this pilot are documented in `RESEARCH.md`.
 The optional cloud/server.py serves the public marketing page and a login-protected online copy of the shop manager. It uses a central SQLite database on one small server, with owner, manager, cashier and viewer accounts, assigned locations, session expiry, password hashing, CSRF checks and server-side role enforcement. It binds to localhost behind Caddy HTTPS. This is a review implementation, not the finished scalable AWS platform. Hosted data is separate from desktop databases; desktop-to-server sync, live WhatsApp delivery webhooks and production deployment/recovery are not yet connected. The browser review needs internet; offline billing remains in the Windows app.
 
 The user requested a three-hour temporary AWS review. Temporary addresses, passwords and AWS resource records are excluded from Git. The supplied repository is currently public.
+
+## Online pairing (0.3.0 pilot)
+
+1. Install the 0.3.0 Windows installer over the existing app; it closes the app and makes a pre-update backup.
+2. Sign in to the online app as owner, open **Account & staff → Offline PCs → Connect a Windows PC**. Choose Warehouse for trading/retail or Outlet for the café. Choose how much currently unallocated stock to reserve for that PC.
+3. In Windows open **Settings → Connect to online business**. Enter the HTTPS server origin, one-time code and a PC name. Confirm that the existing records are disposable samples. Pairing saves a verified local backup, then adopts the server's records. Real-data merging is not implemented. Codes expire in ten minutes and bind to one PC.
+4. Leave the launcher open. Saved bills, customer profiles and expenses exchange every 30 seconds when connected; **Sync now** retries immediately. Offline bills remain locally saved when the server is unreachable.
+5. The server administers catalogue, GST, recipes, purchases, transfers, supplier/customer credit and stock grants. Paired offline tills issue fully paid sales, maintain customer profiles, record expenses and reverse their own bills. They sell only their reserved stock or ingredients, so several disconnected PCs cannot consume the same allowance. Stock received online is granted manually through **Inventory → PC stock allowances**, then the till syncs.
+6. The website sells the unallocated balance. Release unused allowance on its issuing PC and sync before disabling that PC. Disabling sync does not reclaim stock that the offline PC may already have sold.
+
+Credentials are stored outside the database and protected for the current Windows account using DPAPI. Database backups alone do not move a paired identity or credential to a different PC; reconcile before restoring or replacing a till. Folder sync and server sync cannot be enabled together. Server-authoritative customer edits use event timestamps; concurrent profile changes use the last event, without a manual conflict-merge screen.
+
+The temporary AWS review server will be deleted at the agreed expiry. Desktop data survives, but exchange stops until a permanent compatible server is provisioned. This release does not automatically migrate a paired business to another server or provide production disaster recovery.

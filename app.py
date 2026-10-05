@@ -94,12 +94,14 @@ class Shop:
         self.folder.mkdir(parents=True, exist_ok=True)
         self.path = self.folder / 'shop.sqlite3'
         self.lock = threading.RLock()
+        self.cloud_lock = threading.RLock()
         with self.connect() as db:
             db.executescript('PRAGMA journal_mode=WAL;' + SCHEMA)
             defaults = {'name':'Al Hidaya Traders','address':'','phone':'','gstin':'','state':'29','gst_enabled':False,
                         'invoice_prefix':'AH','backup_folder':'','last_backup':'','printer':'80','demo':False,
                         'device_id':secrets.token_hex(8),'device_location':'','sync_folder':'','last_sync':'',
                         'admin_device_id':'','device_name':'','setup_role':'owner',
+                        'cloud_url':'','cloud_business_id':'','cloud_cursor':0,
                         'whatsapp_enabled':False,'whatsapp_phone_id':'','whatsapp_api_version':'','whatsapp_language':'en',
                         'whatsapp_invoice_template':'','whatsapp_payment_template':'','whatsapp_internal_template':'',
                         'whatsapp_daily_time':'','whatsapp_low_stock':True,'whatsapp_transfers':True,'whatsapp_purchases':True}
@@ -165,7 +167,7 @@ class Shop:
         db.execute('INSERT OR IGNORE INTO stocks VALUES(?,?,0)',(pid,location))
         stock = db.execute('SELECT quantity FROM stocks WHERE product_id=? AND location=?',(pid,location)).fetchone()[0]
         settings = self.settings(db)
-        if settings['admin_device_id'] and settings['device_location']:
+        if settings['admin_device_id']:
             actor = settings['device_id']
             if actor == settings['admin_device_id']:
                 reserved = db.execute('SELECT COALESCE(SUM(quantity),0) FROM allocations WHERE product_id=? AND location=?',(pid,location)).fetchone()[0]
@@ -184,6 +186,9 @@ class Shop:
         db.execute('INSERT INTO movements(date,product_id,quantity,reference,note,location) VALUES(?,?,?,?,?,?)',(now(),pid,qty,ref,note,location))
 
     def act(self, action, data):
+        if action == 'cloud_pair':
+            from cloud_sync import pair_desktop
+            return pair_desktop(self,data)
         if action == 'backup':
             return self.backup()
         if action == 'sync':
@@ -372,6 +377,10 @@ class Shop:
             elif action == 'reverse':
                 result = self.reverse(db,data)
             elif action == 'settings':
+                if configuration.get('cloud_url') and data.get('sync_folder'):
+                    raise ValueError('This PC uses authenticated server sync. Do not also enable folder sync.')
+                if configuration.get('cloud_url') and data.get('device_location',device_location)!=device_location:
+                    raise ValueError('This PC’s location is assigned by its server pairing.')
                 if not is_admin and admin:
                     shared = ('name','address','phone','gstin','state','gst_enabled','invoice_prefix')
                     for key in shared:
@@ -674,6 +683,11 @@ class Shop:
         return True
 
     def sync(self):
+        with self.connect() as db:
+            cloud = self.settings(db).get('cloud_url')
+        if cloud:
+            from cloud_sync import sync_desktop
+            return sync_desktop(self)
         with self.lock:
             with self.connect() as db:
                 settings = self.settings(db)
@@ -1013,7 +1027,7 @@ def main():
                 if ticks % 30 == 0:
                     shop.backup()
                 with shop.connect() as db:
-                    if shop.settings(db)['sync_folder']:
+                    if shop.settings(db)['sync_folder'] or shop.settings(db).get('cloud_url'):
                         shop.sync()
                 shop.daily_update()
                 from notifications import process_outbox
