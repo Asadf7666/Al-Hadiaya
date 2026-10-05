@@ -2,6 +2,7 @@
 set -eu
 REVIEW_HOST="$1"
 cd /tmp
+cp caddy.tar.gz caddy_2.10.2_linux_amd64.tar.gz
 grep 'caddy_2.10.2_linux_amd64.tar.gz$' checksums.txt | sha512sum -c -
 tar xzf caddy.tar.gz caddy
 install -m 755 caddy /usr/local/bin/caddy

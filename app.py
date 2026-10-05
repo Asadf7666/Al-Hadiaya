@@ -40,6 +40,14 @@ def required(value, label='Name'):
         raise ValueError(label + ' is required.')
     return value
 
+class ClosingConnection(sqlite3.Connection):
+    """Commit/rollback a context and release Windows file handles immediately."""
+    def __exit__(self,*args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
+
 SCHEMA = '''
 
                 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -117,7 +125,7 @@ class Shop:
                     db.execute('INSERT INTO stocks VALUES(?,?,?)',(p['id'],'Outlet',p['stock']))
 
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=15)
+        db = sqlite3.connect(self.path, timeout=15, factory=ClosingConnection)
         db.row_factory = sqlite3.Row
         db.execute('PRAGMA foreign_keys=ON')
         return db
@@ -851,7 +859,7 @@ class Shop:
             for folder in folders:
                 folder.mkdir(parents=True,exist_ok=True)
                 target = folder/name
-                with sqlite3.connect(target) as destination:
+                with sqlite3.connect(target, factory=ClosingConnection) as destination:
                     source.backup(destination)
                     if destination.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                         raise ValueError('Backup integrity check failed.')
@@ -910,7 +918,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/backup-download':
             with self.shop.lock, self.shop.connect() as source:
                 target = self.shop.folder/'download.sqlite3'
-                with sqlite3.connect(target) as destination:
+                with sqlite3.connect(target, factory=ClosingConnection) as destination:
                     source.backup(destination)
                 return self.send(200,target.read_bytes(),'application/vnd.sqlite3')
         files = {'/':'index.html','/app.js':'app.js','/style.css':'style.css'}
@@ -950,7 +958,7 @@ def restore_backup(shop, source):
     source = Path(source).resolve()
     if source == shop.path.resolve():
         raise ValueError('Choose a backup file, not the live database.')
-    with sqlite3.connect(f'file:{source.as_posix()}?mode=ro',uri=True) as db:
+    with sqlite3.connect(f'file:{source.as_posix()}?mode=ro',uri=True,factory=ClosingConnection) as db:
         if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
             raise ValueError('Invalid backup.')
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}

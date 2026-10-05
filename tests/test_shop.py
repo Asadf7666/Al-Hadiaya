@@ -1,4 +1,5 @@
 import json
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -95,7 +96,7 @@ class ShopTests(unittest.TestCase):
         p=self.product();backup=self.shop.backup()['paths'][0];self.sale(p)
         restore_backup(self.shop,backup)
         self.assertFalse(self.shop.state()['documents']);self.assertEqual(self.shop.state()['products'][0]['stock'],100)
-        with sqlite3.connect(backup) as db:self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0],'ok')
+        with closing(sqlite3.connect(backup)) as db:self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0],'ok')
     def test_two_pc_offline_sync_idempotency_and_convergence(self):
         # Keep test setup small; the actual Warehouse setup populates the catalogue.
         p=self.product(location='Warehouse');self.customer('supplier')

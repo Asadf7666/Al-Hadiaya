@@ -156,9 +156,26 @@ class Handler(BaseHTTPRequestHandler):
         path=urlparse(self.path).path
         if self.headers.get('Origin')!=self.online.origin:return self.send(403,{'error':'Origin rejected.'})
         try:
-            size=int(self.headers.get('Content-Length',0))
-            if size<1 or size>1000000:raise ValueError('Invalid request size.')
-            raw=self.rfile.read(size)
+            self.connection.settimeout(15)
+            if self.headers.get('Transfer-Encoding','').lower()=='chunked':
+                chunks=[];size=0
+                while True:
+                    line=self.rfile.readline(128)
+                    if not line.endswith(b'\r\n'):raise ValueError('Invalid request encoding.')
+                    length=int(line.split(b';')[0].strip(),16)
+                    if length<0 or size+length>1000000:raise ValueError('Request too large.')
+                    if not length:
+                        if self.rfile.readline(8192)!=b'\r\n':raise ValueError('Request trailers are not accepted.')
+                        break
+                    chunk=self.rfile.read(length)
+                    if len(chunk)!=length or self.rfile.read(2)!=b'\r\n':raise ValueError('Incomplete request.')
+                    chunks.append(chunk);size+=length
+                raw=b''.join(chunks)
+            else:
+                size=int(self.headers.get('Content-Length',0))
+                if size<1 or size>1000000:raise ValueError('Invalid request size.')
+                raw=self.rfile.read(size)
+                if len(raw)!=size:raise ValueError('Incomplete request.')
             if path=='/login':
                 fields=parse_qs(raw.decode());ip=self.headers.get('X-Forwarded-For',self.client_address[0]).split(',')[0]
                 token=self.online.login(fields.get('username',[''])[0],fields.get('password',[''])[0],ip)
