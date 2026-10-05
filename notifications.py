@@ -1,0 +1,118 @@
+"""WhatsApp template outbox. Uses stdlib; keeps API credentials out of database/sync."""
+import ctypes
+import datetime as dt
+import json
+import os
+import re
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+def whatsapp_number(value):
+    digits = re.sub(r'\D','',str(value or ''))
+    if len(digits)==10:
+        digits='91'+digits
+    if digits.startswith('00'):
+        digits=digits[2:]
+    if not re.fullmatch(r'[1-9][0-9]{7,14}',digits):
+        raise ValueError('WhatsApp needs a valid mobile number with country code (Indian 10-digit mobiles default to +91).')
+    return digits
+
+def protect(raw, decrypt=False):
+    if os.name!='nt':
+        return raw
+    from ctypes import wintypes
+    class Blob(ctypes.Structure):
+        _fields_=[('cbData',wintypes.DWORD),('pbData',ctypes.POINTER(ctypes.c_ubyte))]
+    buf=(ctypes.c_ubyte*len(raw)).from_buffer_copy(raw)
+    source=Blob(len(raw),buf);target=Blob()
+    fn=ctypes.windll.crypt32.CryptUnprotectData if decrypt else ctypes.windll.crypt32.CryptProtectData
+    fn.argtypes=[ctypes.POINTER(Blob),ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,wintypes.DWORD,ctypes.POINTER(Blob)]
+    fn.restype=wintypes.BOOL
+    if not fn(ctypes.byref(source),None,None,None,None,1,ctypes.byref(target)):
+        raise OSError('Windows credential protection failed.')
+    try:
+        return ctypes.string_at(target.pbData,target.cbData)
+    finally:
+        free=ctypes.windll.kernel32.LocalFree
+        free.argtypes=[ctypes.c_void_p]
+        free.restype=ctypes.c_void_p
+        free(target.pbData)
+
+def token_file(folder):
+    return Path(folder)/'whatsapp-credential.bin'
+
+def save_token(folder, value):
+    path=token_file(folder)
+    if not str(value).strip():
+        path.unlink(missing_ok=True)
+        return
+    temporary=path.with_suffix('.tmp')
+    temporary.touch(mode=0o600,exist_ok=True)
+    temporary.write_bytes(protect(str(value).strip().encode()))
+    temporary.replace(path)
+    if os.name!='nt':
+        path.chmod(0o600)
+
+def read_token(folder):
+    path=token_file(folder)
+    return protect(path.read_bytes(),decrypt=True).decode() if path.exists() else ''
+
+def deliver(settings, token, row):
+    version=settings['whatsapp_api_version']
+    phone_id=settings['whatsapp_phone_id']
+    if not re.fullmatch(r'v[0-9]+\.[0-9]+',version) or not re.fullmatch(r'[0-9]+',phone_id):
+        raise ValueError('Configure the Graph API version and WhatsApp sender phone-number ID.')
+    payload={'messaging_product':'whatsapp','recipient_type':'individual','to':row['phone'],'type':'template',
+             'template':{'name':row['template'],'language':{'code':settings['whatsapp_language']},
+             'components':[{'type':'body','parameters':[{'type':'text','text':str(v)} for v in json.loads(row['parameters'])]}]}}
+    req=urllib.request.Request(f'https://graph.facebook.com/{version}/{phone_id}/messages',
+        data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
+    try:
+        with urllib.request.urlopen(req,timeout=15) as response:
+            result=json.load(response)
+        message_id=result.get('messages',[{}])[0].get('id')
+        if not message_id:
+            return 'uncertain','No message ID was returned. Check Meta before sending again.',''
+        return 'accepted','Accepted by WhatsApp API; delivery/read status requires later webhook integration.',message_id
+    except urllib.error.HTTPError as e:
+        # Do not return response bodies: they may contain business data or credentials.
+        return ('retry' if e.code==429 or e.code>=500 else 'failed'),f'WhatsApp API returned HTTP {e.code}. Check template approval, sender setup and permissions.',''
+    except (TimeoutError,urllib.error.URLError,OSError,json.JSONDecodeError):
+        return 'uncertain','The response was lost or unavailable. Check Meta before retrying to avoid duplicate notifications.',''
+
+def process_outbox(shop):
+    with shop.lock,shop.connect() as db:
+        settings=shop.settings(db)
+        if not settings['whatsapp_enabled'] or (settings['admin_device_id'] and settings['device_id']!=settings['admin_device_id']):
+            return {'processed':0}
+        token=read_token(shop.folder)
+        if not token:
+            return {'processed':0,'message':'WhatsApp token is not configured.'}
+        current=dt.datetime.now().astimezone().isoformat(timespec='seconds')
+        rows=[dict(r) for r in db.execute("SELECT * FROM notifications WHERE status IN ('queued','retry') AND next_attempt<=? ORDER BY created LIMIT 10",(current,))]
+        # Claim before network I/O. A crash cannot automatically resubmit a possibly sent message.
+        for row in rows:
+            db.execute("UPDATE notifications SET status='sending',attempts=attempts+1 WHERE id=?",(row['id'],))
+    for row in rows:
+        try:
+            with shop.lock,shop.connect() as db:
+                if row['internal_id'] is not None:
+                    p=db.execute('SELECT * FROM internal_contacts WHERE id=?',(row['internal_id'],)).fetchone()
+                    consent=p and p['opt_in']
+                else:
+                    p=db.execute('SELECT * FROM parties WHERE id=?',(row['party_id'],)).fetchone()
+                    consent=p and p['whatsapp_opt_in']
+                if not consent or whatsapp_number(p['phone'])!=row['phone']:
+                    db.execute("UPDATE notifications SET status='cancelled',detail='Recipient opted out or changed mobile number.' WHERE id=?",(row['id'],))
+                    continue
+            status,detail,message_id=deliver(settings,token,row)
+        except Exception:
+            status,detail,message_id='failed','Check notification configuration. No automatic retry was scheduled.',''
+        delay=min(3600,60*2**min(row['attempts'],5))
+        if status=='retry' and row['attempts']>=4:
+            status='failed';detail+=' Retry limit reached.'
+        retry=(dt.datetime.now().astimezone()+dt.timedelta(seconds=delay)).isoformat(timespec='seconds')
+        with shop.lock,shop.connect() as db:
+            db.execute('UPDATE notifications SET status=?,detail=?,provider_id=?,next_attempt=? WHERE id=?',(status,detail,message_id,retry,row['id']))
+    return {'processed':len(rows)}
