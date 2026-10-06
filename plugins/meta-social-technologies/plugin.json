@@ -1,0 +1,35 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "meta-social-technologies",
+  "version": "0.1.0",
+  "description": "Meta developer app diagnostics and WhatsApp webhook setup for Al Hidaya Traders.",
+  "author": {
+    "name": "Al Hidaya Traders"
+  },
+  "repository": "https://github.com/Asadf7666/Al-Hadiaya",
+  "keywords": [
+    "meta",
+    "whatsapp",
+    "webhooks",
+    "al-hidaya"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Meta Tools for Al Hidaya",
+        "shortDescription": "Connect Meta developer tools and prepare WhatsApp integration",
+        "longDescription": "Al Hidaya Traders wrapper for Meta Social Technologies MCP. Inspect app settings, review API health and configure authorized webhooks using Meta OAuth. WhatsApp message sending requires a separate Cloud API integration.",
+        "developerName": "Al Hidaya Traders",
+        "category": "Productivity",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "defaultPrompt": [
+          "Check my Meta app and explain what remains for WhatsApp Cloud API setup."
+        ],
+        "brandColor": "#B58A32"
+      }
+    }
+  }
+}
