@@ -84,7 +84,7 @@ def deliver(settings, token, row):
 def process_outbox(shop):
     with shop.lock,shop.connect() as db:
         settings=shop.settings(db)
-        if not settings['whatsapp_enabled'] or (settings['admin_device_id'] and settings['device_id']!=settings['admin_device_id']):
+        if not settings['whatsapp_enabled']:
             return {'processed':0}
         token=read_token(shop.folder)
         if not token:

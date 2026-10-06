@@ -104,11 +104,6 @@ class ShopTests(unittest.TestCase):
         outlet=Shop(self.root/'outlet');outlet.act('settings',{'device_location':'Outlet','sync_folder':cloud})
         self.shop.act('transfer',{'product_id':p,'quantity':24,'source':'Warehouse','target':'Outlet'})
         self.shop.sync();self.assertEqual(outlet.sync()['pending'],0)
-        with self.assertRaises(ValueError):outlet.act('sale',{'location':'Outlet','payment':'Cash','items':[{'product_id':p,'quantity':3}]})
-        self.shop.sync()
-        oid=outlet.state()['settings']['device_id']
-        self.shop.act('allocate',{'device_id':oid,'product_id':p,'quantity':24})
-        self.shop.sync();outlet.sync()
         outlet.act('sale',{'location':'Outlet','payment':'Cash','items':[{'product_id':p,'quantity':3}]})
         self.assertEqual(self.shop.state()['products'][0]['stock'],100)
         outlet.sync();self.assertEqual(self.shop.sync()['pending'],0)
@@ -117,11 +112,14 @@ class ShopTests(unittest.TestCase):
         self.assertEqual(a['products'],b['products']);self.assertEqual(len(a['documents']),1);self.assertEqual(len(b['documents']),1)
         self.assertEqual(a['products'][0]['stock'],97)
         self.assertEqual(sorted(a['stocks'],key=lambda s:s['location']),sorted(b['stocks'],key=lambda s:s['location']))
-    def test_role_boundaries(self):
-        p=self.product();self.shop.act('settings',{'device_location':'Outlet'})
-        with self.assertRaises(ValueError):self.shop.act('adjust',{'product_id':p,'location':'Warehouse','quantity':10,'note':'test'})
-        with self.assertRaises(ValueError):self.shop.act('transfer',{'product_id':p,'source':'Warehouse','target':'Outlet','quantity':1})
-        with self.assertRaises(ValueError):self.product(sku='OTHER')
+    def test_every_node_can_manage_both_locations(self):
+        p=self.product();self.shop.act('settings',{'device_location':'Outlet','setup_role':'join'})
+        self.shop.act('adjust',{'product_id':p,'location':'Warehouse','quantity':10,'note':'test'})
+        self.shop.act('transfer',{'product_id':p,'source':'Warehouse','target':'Outlet','quantity':1})
+        q=self.product(sku='OTHER');self.assertTrue(q)
+        self.shop.act('party',{'kind':'supplier','name':'Supplier from cafe node'})
+        self.shop.act('settings',{'name':'Shared business edited at cafe'})
+        self.assertEqual(self.shop.state()['settings']['name'],'Shared business edited at cafe')
     def test_duplicate_barcode_and_bulk_import_are_atomic(self):
         self.product(barcode='12345')
         with self.assertRaises(sqlite3.IntegrityError):self.product(sku='OTHER',barcode='12345')
@@ -162,34 +160,17 @@ class ShopTests(unittest.TestCase):
         self.assertEqual(self.shop.state()['products'][0]['stock'],100)
         self.assertEqual(len(self.shop.state()['sync_errors']),1)
 
-    def test_three_offline_counters_cannot_oversell_shared_stock(self):
-        p=self.product(stock=10,location='Warehouse')
-        cloud=str(self.root/'cloud')
-        self.shop.act('settings',{'device_location':'Warehouse','sync_folder':cloud,'device_name':'Main'})
-        tills=[]
-        for name in ('Till A','Till B'):
-            till=Shop(self.root/name)
-            till.act('settings',{'device_location':'Warehouse','setup_role':'join','sync_folder':cloud,'device_name':name})
-            till.sync();tills.append(till)
-        self.shop.sync()
-        for till in tills:self.shop.act('allocate',{'device_id':till.state()['settings']['device_id'],'product_id':p,'quantity':3})
-        self.shop.sync()
-        for till in tills:till.sync()
-        # All three counters then trade while disconnected from one another.
-        self.shop.act('sale',{'location':'Warehouse','items':[{'product_id':p,'quantity':4}]})
-        for till in tills:
-            till.act('sale',{'location':'Warehouse','items':[{'product_id':p,'quantity':3}]})
-            with self.assertRaises(ValueError):till.act('sale',{'location':'Warehouse','items':[{'product_id':p,'quantity':1}]})
-        with self.assertRaises(ValueError):self.shop.act('sale',{'location':'Warehouse','items':[{'product_id':p,'quantity':1}]})
-        for till in tills:till.sync()
-        self.shop.sync()
-        self.assertEqual(self.shop.state()['products'][0]['stock'],0)
-        self.assertEqual(len(self.shop.state()['documents']),3)
-        for till in tills:
-            self.assertEqual(till.sync()['pending'],0)
-            self.assertEqual(till.state()['products'][0]['stock'],0)
-            self.assertEqual(sum(r['quantity'] for r in till.state()['allocations']),0)
-
+    def test_conflicting_offline_stock_is_preserved_for_review(self):
+        p=self.product(stock=10,location='Warehouse');cloud=str(self.root/'cloud')
+        self.shop.act('settings',{'device_location':'Warehouse','sync_folder':cloud})
+        other=Shop(self.root/'other');other.act('settings',{'device_location':'Outlet','sync_folder':cloud})
+        self.shop.sync();other.sync()
+        self.shop.act('sale',{'location':'Warehouse','items':[{'product_id':p,'quantity':6}]})
+        other.act('sale',{'location':'Warehouse','items':[{'product_id':p,'quantity':6}]})
+        other.sync();r=self.shop.sync()
+        self.assertGreater(r['pending'],0);self.assertEqual(self.shop.state()['products'][0]['stock'],4)
+        self.assertEqual(len(other.state()['documents']),1)
+        self.assertTrue(self.shop.state()['sync_errors'])
     def test_customer_profile_updates_preserve_history_and_dues(self):
         p=self.product();c=self.customer();self.sale(p,party_id=c,paid=40)
         self.shop.act('party',{'id':c,'kind':'customer','name':'Updated customer','phone':'9876543210','email':'customer@example.test',
@@ -200,15 +181,14 @@ class ShopTests(unittest.TestCase):
         self.assertEqual(self.shop.state()['documents'][0]['snapshot']['party']['name'],'Test party')
         with self.assertRaises(ValueError):self.sale(p,quantity=5,party_id=c,paid=0)
 
-    def test_unused_allowance_is_released_by_its_issuing_till(self):
+    def test_any_node_can_reverse_a_synced_invoice(self):
         p=self.product(stock=10,location='Warehouse');cloud=str(self.root/'cloud')
         self.shop.act('settings',{'device_location':'Warehouse','sync_folder':cloud})
-        till=Shop(self.root/'till');till.act('settings',{'device_location':'Warehouse','setup_role':'join','sync_folder':cloud})
-        till.sync();self.shop.sync();tid=till.state()['settings']['device_id']
-        self.shop.act('allocate',{'device_id':tid,'product_id':p,'quantity':10});self.shop.sync();till.sync()
-        with self.assertRaises(ValueError):self.shop.act('sale',{'location':'Warehouse','items':[{'product_id':p,'quantity':1}]})
-        till.act('release_allocation',{'product_id':p,'quantity':4});till.sync();self.shop.sync()
-        self.shop.act('sale',{'location':'Warehouse','items':[{'product_id':p,'quantity':4}]})
-        self.assertEqual(till.state()['allocations'][0]['quantity'],6)
+        bill=self.shop.act('sale',{'location':'Warehouse','items':[{'product_id':p,'quantity':2}]})['id']
+        other=Shop(self.root/'other');other.act('settings',{'device_location':'Outlet','sync_folder':cloud})
+        self.shop.sync();other.sync()
+        other.act('reverse',{'id':bill,'reason':'Reversed from another node'})
+        other.sync();self.shop.sync()
+        self.assertTrue(self.shop.state()['documents'][0]['reversed']);self.assertEqual(self.shop.state()['products'][0]['stock'],10)
 
 if __name__=='__main__':unittest.main()

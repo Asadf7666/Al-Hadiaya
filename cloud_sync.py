@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from notifications import protect
 
 TABLES=('products','parties','devices','stocks','allocations','recipes','documents','lines','movements','payments','expenses')
-BUSINESS=('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id')
+BUSINESS=('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id','node_mode')
 DDL='''CREATE TABLE IF NOT EXISTS cloud_codes(digest TEXT PRIMARY KEY,expires REAL,location TEXT,percentage INTEGER,used_device TEXT);
 CREATE TABLE IF NOT EXISTS cloud_peers(device_id TEXT PRIMARY KEY,token_hash TEXT,name TEXT,location TEXT,active INTEGER DEFAULT 1,last_contact TEXT);
 CREATE TABLE IF NOT EXISTS cloud_stream(seq INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT UNIQUE);
@@ -47,7 +47,9 @@ def request(url,path,data,token=None):
     except urllib.error.HTTPError as e:
         # Never include request URLs, authorization headers or response secrets in errors.
         if e.code in (401,403):raise ValueError('Server pairing expired or this PC was disabled. Review Offline PCs on the server.') from None
-        raise ValueError('Server rejected the sync request (HTTP '+str(e.code)+').') from None
+        try:message=json.loads(e.read(4096)).get('error','')
+        except Exception:message=''
+        raise ValueError(message[:300] or 'Server rejected the sync request (HTTP '+str(e.code)+').') from None
     except (urllib.error.URLError,TimeoutError,OSError):
         raise ValueError('Server unavailable. Saved bills remain on this PC; retry when connected.') from None
 
@@ -60,21 +62,19 @@ class Hub:
                 db.execute('INSERT OR REPLACE INTO settings VALUES(?,?)',('cloud_business_id',json.dumps(secrets.token_hex(16))))
     def index(self,db):
         db.execute('INSERT OR IGNORE INTO cloud_stream(event_id) SELECT id FROM sync_events ORDER BY date,id')
-    def code(self,location,percentage):
-        if location not in ('Warehouse','Outlet') or int(percentage) not in (0,25,50,100):raise ValueError('Choose location and stock allowance percentage.')
+    def code(self,location,percentage=0):
+        if location not in ('Warehouse','Outlet'):raise ValueError('Choose a default transaction location.')
         with self.shop.lock,self.shop.connect() as db:
             s=self.shop.settings(db)
-            if s['admin_device_id'] and s['admin_device_id']!=s['device_id']:raise ValueError('This server is not the stock authority.')
-            if not s['admin_device_id']:
-                before=self.shop.capture(db)
-                db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(s['device_id']),'admin_device_id'))
-                db.execute('INSERT OR IGNORE INTO devices VALUES(?,?,?)',(s['device_id'],'Online server','Warehouse'))
-                self.shop.record_event(db,before)
+            before=self.shop.capture(db)
+            db.execute('INSERT OR IGNORE INTO devices VALUES(?,?,?)',(s['device_id'],'Online node','Warehouse'))
+            self.shop.record_event(db,before)
             code=secrets.token_urlsafe(30)
             db.execute('DELETE FROM cloud_codes WHERE expires<?',(time.time(),))
             db.execute('INSERT INTO cloud_codes VALUES(?,?,?,?,NULL)',(digest(code),time.time()+600,location,int(percentage)))
             return {'code':code,'expires_minutes':10,'location':location,'percentage':int(percentage)}
     def pair(self,data):
+        if data.get('protocol')!=2:raise ValueError('Install Windows 0.4.0 or newer for full node operations.')
         ident=str(data.get('device_id',''));name=str(data.get('name','')).strip()[:100]
         if not re.fullmatch(r'[0-9a-f]{16}',ident) or not name:raise ValueError('A valid PC identity and name are required.')
         code=str(data.get('code',''));key=digest('alhidaya-device:'+code+':'+ident)
@@ -87,12 +87,6 @@ class Hub:
                 before=self.shop.capture(db)
                 db.execute('INSERT INTO devices(id,name,location) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,location=excluded.location',(ident,name,c['location']))
                 db.execute('INSERT INTO cloud_peers VALUES(?,?,?,?,1,?)',(ident,digest(key),name,c['location'],dt.datetime.now(dt.timezone.utc).isoformat()))
-                for row in db.execute("SELECT s.product_id,s.quantity,p.kind FROM stocks s JOIN products p ON p.id=s.product_id WHERE s.location=?",(c['location'],)).fetchall():
-                    reserved=db.execute('SELECT COALESCE(SUM(quantity),0) FROM allocations WHERE product_id=? AND location=?',(row['product_id'],c['location'])).fetchone()[0]
-                    available=max(0,row['quantity']-reserved)
-                    quantity=round(available*c['percentage']/100,6)
-                    if row['kind']=='stock':quantity=float(math.floor(quantity))
-                    if quantity>0:db.execute('INSERT INTO allocations VALUES(?,?,?,?)',(ident,row['product_id'],c['location'],quantity))
                 self.shop.record_event(db,before)
             db.execute('UPDATE cloud_codes SET used_device=? WHERE digest=?',(ident,digest(code)))
             self.index(db)
@@ -106,63 +100,77 @@ class Hub:
         if not row:raise PermissionError('PC connection disabled or unknown.')
         return row
     def validate(self,db,event,peer):
-        ident=peer['device_id'];loc=peer['location']
+        ident=peer['device_id']
         if event.get('version')!=1 or event.get('device')!=ident or not re.fullmatch(r'[0-9]{20}-'+ident+r'-[0-9a-f]{8}',event.get('id','')):raise ValueError('Invalid event identity.')
         p=event['payload']
-        if p.get('settings') or p.get('recipes') or p['masters'].get('products') or p['append'].get('payments') or p['deltas'].get('parties'):raise ValueError('Offline tills cannot change shared stock administration, prices or credit ledgers.')
+        if set(p)-{'masters','append','deltas','settings','recipes'}:raise ValueError('Unknown event content.')
+        if set(p['masters'])-{'products','parties','devices','documents'} or set(p['append'])-{'lines','movements','payments','expenses'} or set(p['deltas'])-{'stocks','parties','allocations'}:raise ValueError('Unknown synced table.')
         for row in p['masters'].get('devices',[]):
-            if row['id']!=ident or row['location']!=loc:raise ValueError('PC location is fixed by its pairing.')
+            if row['id']!=ident or row['location'] not in ('Warehouse','Outlet'):raise ValueError('Only this node’s identity may be updated.')
+        for row in p['settings']:
+            if row['key'] not in BUSINESS or row['key']=='admin_device_id':raise ValueError('Invalid shared business setting.')
+            if row['key']=='node_mode' and json.loads(row['value'])!='unified':raise ValueError('All nodes must use the same capabilities.')
+        for row in p['masters'].get('products',[]):
+            if row['kind'] not in ('stock','ingredient','recipe'):raise ValueError('Invalid product type.')
+            for key in ('price','cost','mrp','wholesale_price'):
+                if type(row[key]) is not int or row[key]<0:raise ValueError('Invalid product money amount.')
+            for key in ('gst','cess','minimum','pack'):
+                if not math.isfinite(row[key]) or row[key]<0:raise ValueError('Invalid product quantity or tax.')
+            if row['gst']>100 or row['cess']>100 or row['pack']<1:raise ValueError('Invalid product tax or pack size.')
         for row in p['masters'].get('parties',[]):
-            old=db.execute('SELECT kind,credit_limit FROM parties WHERE id=?',(row['id'],)).fetchone()
-            if row['kind']!='customer' or (old and old['kind']!='customer') or row.get('credit_limit',0)!=(old['credit_limit'] if old else 0):raise ValueError('Only customer profiles without credit changes can sync from a till.')
-        reversed_any=False
-        documents={}
+            if row['kind'] not in ('customer','supplier') or type(row['credit_limit']) is not int or row['credit_limit']<0:raise ValueError('Invalid customer or supplier.')
+            old=db.execute('SELECT kind FROM parties WHERE id=?',(row['id'],)).fetchone()
+            if old and old['kind']!=row['kind']:raise ValueError('A customer or supplier cannot change type.')
+        documents={};ledger={}
         for row in p['masters'].get('documents',[]):
             documents[row['id']]=row
-            if any(type(row[k]) is not int or row[k]<0 for k in ('total','paid','tax','discount')) or row['tax']>row['total'] or row['reversed'] not in (0,1):raise ValueError('Invalid invoice amounts.')
+            if any(type(row[k]) is not int or row[k]<0 for k in ('total','paid','tax','discount')) or row['tax']>row['total'] or row['paid']>row['total'] or row['reversed'] not in (0,1):raise ValueError('Invalid invoice amounts.')
+            if row['kind'] not in ('sale','purchase') or row['location'] not in ('Warehouse','Outlet'):raise ValueError('Invalid invoice type or location.')
             snapshot=json.loads(row['snapshot']);old=db.execute('SELECT * FROM documents WHERE id=?',(row['id'],)).fetchone()
-            if row['kind']!='sale' or row['location']!=loc or snapshot.get('device_id')!=ident or row['paid']!=row['total']:raise ValueError('Offline tills sync fully paid sales at their assigned location only.')
             if old:
-                comparable=dict(old)
-                comparable.pop('reversed',None)
-                changed={k:v for k,v in row.items() if k!='reversed'}
-                if comparable!=changed or old['reversed'] or not row['reversed']:raise ValueError('Issued invoices are immutable; only the issuing PC may reverse an unreversed bill.')
-                reversed_any=True
-        stock_deltas={}
-        for r in p['deltas']['stocks']:
-            if r['location']!=loc:raise ValueError('Stock belongs to another location.')
-            stock_deltas[r['product_id']]=stock_deltas.get(r['product_id'],0)+r['delta']
-        allocations={}
-        for r in p['deltas'].get('allocations',[]):
-            if r['device_id']!=ident or r['location']!=loc:raise ValueError('A till cannot change another PC allowance.')
-            allocations[r['product_id']]=allocations.get(r['product_id'],0)+r['delta']
-        for pid in set(stock_deltas)|set(allocations):
-            ds=stock_deltas.get(pid,0);da=allocations.get(pid,0)
-            if not math.isfinite(ds) or not math.isfinite(da):raise ValueError('Invalid stock quantities.')
-            if ds and abs(ds-da)>0.000001:raise ValueError('Stock consumption must use this PC’s reserved allowance.')
-            if (ds>0 or da>0) and not reversed_any:raise ValueError('Only a valid sale reversal can restore a till allowance.')
-        movement_deltas={};reversal_deltas={}
+                if {k:v for k,v in dict(old).items() if k!='reversed'}!={k:v for k,v in row.items() if k!='reversed'} or old['reversed'] or not row['reversed']:raise ValueError('Invoice is immutable or already reversed on another node.')
+            elif snapshot.get('device_id')!=ident or row['reversed']:raise ValueError('A new invoice must identify this node.')
+            if row['party_id']:
+                ledger[row['party_id']]=ledger.get(row['party_id'],0)+(row['total']-row['paid'])*(-1 if row['reversed'] else 1)
+            elif row['paid']!=row['total']:raise ValueError('Credit requires a customer or supplier.')
+        for row in p['append'].get('payments',[]):
+            if type(row['amount']) is not int or row['amount']<=0 or row['method'] not in ('Cash','UPI','Card','Bank'):raise ValueError('Invalid payment.')
+            ledger[row['party_id']]=ledger.get(row['party_id'],0)-row['amount']
+        deltas={}
+        for row in p['deltas']['parties']:
+            if type(row['delta']) is not int:raise ValueError('Invalid ledger delta.')
+            deltas[row['id']]=deltas.get(row['id'],0)+row['delta']
+        if {k:v for k,v in ledger.items() if v}!={k:v for k,v in deltas.items() if v}:raise ValueError('Ledger changes must agree with invoices and payments.')
+        stocks={};movements={};transfers={};reversals={}
+        for row in p['deltas']['stocks']:
+            if row['location'] not in ('Warehouse','Outlet') or not math.isfinite(row['delta']):raise ValueError('Invalid stock delta.')
+            key=(row['product_id'],row['location']);stocks[key]=stocks.get(key,0)+row['delta']
         for row in p['append'].get('movements',[]):
-            if row['location']!=loc:raise ValueError('Movement belongs to another location.')
-            reference=row['reference'];document_id=reference[4:] if reference.startswith('REV-') else reference
-            if document_id not in documents:raise ValueError('Movement must belong to this event’s invoice.')
-            q=row['quantity']
-            if documents[document_id]['reversed']:
-                key=(document_id,row['product_id'])
-                reversal_deltas[key]=reversal_deltas.get(key,0)+q
-            if not math.isfinite(q) or (q>0)!=bool(documents[document_id]['reversed']):raise ValueError('Movement direction must match sale or reversal.')
-            movement_deltas[row['product_id']]=movement_deltas.get(row['product_id'],0)+q
-        for (document_id,pid),quantity in reversal_deltas.items():
-            original=db.execute('SELECT COALESCE(SUM(quantity),0) FROM movements WHERE reference=? AND product_id=? AND location=?',(document_id,pid,loc)).fetchone()[0]
-            if abs(quantity+original)>0.000001:raise ValueError('Reversal must restore the original stock consumption.')
-        for pid in set(stock_deltas)|set(movement_deltas):
-            if abs(stock_deltas.get(pid,0)-movement_deltas.get(pid,0))>0.000001:raise ValueError('Stock movement and balance must agree.')
+            loc=row['location'];q=row['quantity'];pid=row['product_id'];ref=row['reference']
+            if loc not in ('Warehouse','Outlet') or not math.isfinite(q) or not q:raise ValueError('Invalid stock movement.')
+            key=(pid,loc);movements[key]=movements.get(key,0)+q
+            doc_id=ref[4:] if ref.startswith('REV-') else ref
+            if doc_id in documents:
+                doc=documents[doc_id]
+                positive=(doc['kind']=='purchase')!=bool(doc['reversed'])
+                if loc!=doc['location'] or (q>0)!=positive:raise ValueError('Invoice movement has the wrong direction or location.')
+                if doc['reversed']:
+                    key=(doc_id,pid,loc);reversals[key]=reversals.get(key,0)+q
+            elif ref.startswith('TR-'):
+                key=(ref,pid);transfers[key]=transfers.get(key,0)+q
+            elif ref not in ('OPENING','ADJUST','DEMO'):raise ValueError('Unknown stock movement reference.')
+        for key in stocks.keys()|movements.keys():
+            if abs(stocks.get(key,0)-movements.get(key,0))>0.000001:raise ValueError('Stock balances must agree with movement history.')
+        if any(abs(v)>0.000001 for v in transfers.values()):raise ValueError('Transfers must conserve total stock.')
+        for (doc_id,pid,loc),q in reversals.items():
+            original=db.execute('SELECT COALESCE(SUM(quantity),0) FROM movements WHERE reference=? AND product_id=? AND location=?',(doc_id,pid,loc)).fetchone()[0]
+            if abs(q+original)>0.000001:raise ValueError('Reversal must restore original stock movements.')
         for row in p['append'].get('lines',[]):
-            if row['document_id'] not in documents or documents[row['document_id']]['reversed']:raise ValueError('Lines belong to a new sale in this event.')
+            if row['document_id'] not in documents or documents[row['document_id']]['reversed']:raise ValueError('Lines must belong to a new invoice.')
         for row in p['append'].get('expenses',[]):
             if type(row['amount']) is not int or row['amount']<=0 or row['method'] not in ('Cash','UPI','Card','Bank'):raise ValueError('Invalid expense.')
-        if stock_deltas and not p['masters'].get('documents'):raise ValueError('Stock movements require a sale or reversal.')
     def exchange(self,token,data):
+        if data.get('protocol')!=2:raise ValueError('Update Windows to 0.4.0 before syncing; saved records are preserved.')
         events=data.get('events',[])
         if not isinstance(events,list) or len(events)>50:raise ValueError('Sync up to 50 events per request.')
         accepted=[];errors=[]
@@ -177,13 +185,11 @@ class Hub:
                             accepted.append(event['id']);continue
                         self.validate(db,event,peer)
                         self.shop.apply_event(db,event)
-                        for row in db.execute('SELECT product_id,location,SUM(quantity) AS total FROM allocations GROUP BY product_id,location'):
-                            physical=db.execute('SELECT quantity FROM stocks WHERE product_id=? AND location=?',(row['product_id'],row['location'])).fetchone()
-                            if not physical or row['total']>physical[0]+0.000001:raise ValueError('Stock allowances exceed physical stock.')
                         db.execute('INSERT INTO sync_events VALUES(?,?,?,?)',(event['id'],event['date'],event['device'],json.dumps(event['payload'])))
                         accepted.append(event['id'])
                 except (ValueError,KeyError,TypeError,sqlite3.IntegrityError) as e:
                     errors.append({'id':event.get('id','invalid'),'message':str(e)[:200]})
+                    break  # Preserve causal order: later invoices/payments wait behind the conflict.
             with self.shop.connect() as db:
                 self.index(db)
                 db.execute('UPDATE cloud_peers SET last_contact=? WHERE device_id=?',(dt.datetime.now(dt.timezone.utc).isoformat(),peer['device_id']))
@@ -205,7 +211,7 @@ def _pair_desktop(shop,data):
         ident=s['device_id'];name=str(data.get('name') or s['device_name'] or 'Offline till').strip()
     # Retain the existing records before any network request or replacement.
     shop.backup(local_only=True)
-    reply=request(url,'/api/device-pair',{'device_id':ident,'name':name,'code':str(data.get('code',''))})
+    reply=request(url,'/api/device-pair',{'device_id':ident,'name':name,'code':str(data.get('code','')),'protocol':2})
     state=reply['snapshot']
     with shop.lock,shop.connect() as db:
         db.execute('DELETE FROM notifications')
@@ -221,7 +227,7 @@ def _pair_desktop(shop,data):
         for key,value in {**state['settings'],'cloud_url':url,'cloud_business_id':reply['business_id'],'cloud_cursor':reply['cursor'],'device_location':reply['location'],'device_name':name,'setup_role':'join','sync_folder':'','whatsapp_enabled':False}.items():
             db.execute('INSERT OR REPLACE INTO settings VALUES(?,?)',(key,json.dumps(value)))
         save_credential(shop,{'token':reply['token'],'business_id':reply['business_id']})
-    return {'message':'PC paired. Server records loaded after a local backup. Offline sales use this PC’s allowance.'}
+    return {'message':'PC paired. Server records loaded after a local backup. Every business function is available on this node.'}
 
 def sync_desktop(shop):
     with shop.cloud_lock:
@@ -233,7 +239,7 @@ def _sync_desktop(shop):
         if not key.get('token'):raise ValueError('This PC has no connection credential. Review pairing before billing.')
         rows=db.execute('SELECT * FROM sync_events WHERE id NOT IN (SELECT event_id FROM cloud_sent) ORDER BY date,id LIMIT 50').fetchall()
         events=[{'version':1,'id':r['id'],'device':r['device'],'date':r['date'],'payload':json.loads(r['payload'])} for r in rows]
-    reply=request(s['cloud_url'],'/api/device-sync',{'business_id':s['cloud_business_id'],'events':events,'cursor':s.get('cloud_cursor',0)},key['token'])
+    reply=request(s['cloud_url'],'/api/device-sync',{'business_id':s['cloud_business_id'],'events':events,'cursor':s.get('cloud_cursor',0),'protocol':2},key['token'])
     if reply['business_id']!=s['cloud_business_id']:raise ValueError('Server business identity changed. No records were imported.')
     with shop.lock,shop.connect() as db:
         db.executemany('INSERT OR IGNORE INTO cloud_sent VALUES(?)',[(eid,) for eid in reply['accepted']])
@@ -261,3 +267,13 @@ def _sync_desktop(shop):
         stamp=dt.datetime.now().astimezone().isoformat(timespec='seconds')
         db.execute('INSERT OR REPLACE INTO settings VALUES(?,?)',('last_sync',json.dumps(stamp)))
     return {'imported':imported,'pending':remaining+waiting,'more':reply['more'] or remaining>0,'message':f'{imported} server events imported; {remaining+waiting} awaiting exchange or review.'}
+
+def change_server(shop,data):
+    url=origin(data.get('url',''))
+    with shop.cloud_lock,shop.lock:
+        with shop.connect() as db:s=shop.settings(db);key=credential(shop)
+        if not s.get('cloud_url') or not key.get('token'):raise ValueError('Pair this node first.')
+        reply=request(url,'/api/device-sync',{'business_id':s['cloud_business_id'],'events':[],'cursor':s.get('cloud_cursor',0),'protocol':2},key['token'])
+        if reply['business_id']!=s['cloud_business_id']:raise ValueError('This address belongs to another business.')
+        with shop.connect() as db:db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(url),'cloud_url'))
+    return {'message':'Server address verified and updated. Existing records and pending transactions are preserved.'}

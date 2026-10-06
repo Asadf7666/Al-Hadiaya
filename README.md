@@ -1,18 +1,37 @@
-# Al Hidaya Traders — Shop Manager 0.2.1
+# Al Hidaya Traders — Shop Manager 0.4.0
 
-A functional **pilot**, built for an Indian trading warehouse that also serves retail customers, plus a separate takeaway café/shop outlet. Works locally without internet; English UI with Al Hidaya black-and-gold branding. This is an owned local application, with no app account, subscription, telemetry or hosted application service.
+An owned Windows and web shop manager for an Indian trading warehouse/retail counter and a takeaway café. Every paired PC has all business functions. Warehouse and Outlet identify transaction locations, not device permissions or separate applications. Internet is not needed for local Windows operations. The browser website requires a connection to its server.
 
-## Install on Windows
+## Install or update Windows
 
-1. Download `AlHidayaTraders-Setup-0.2.1.exe` from `dist/`.
-2. Run it on **64-bit Windows 10 or Windows 11**. It installs for the current Windows account; administrator rights and a separate Python installation are not required.
-3. Open **Al Hidaya Traders** from the desktop or Start Menu. Its interface opens in your default browser, backed by a local process on `127.0.0.1:8765`. Internet is not required to open or use it.
-4. Open **Settings & sync**. Select **First/main warehouse PC** on exactly one PC, and **Join the existing business** on all additional PCs. Choose **Warehouse** on the warehouse PC and **Outlet** on the outlet PC. Warehouse setup automatically adds 379 product templates. The outlet receives the same catalogue through sync.
-5. Enter the business address and phone. Karnataka defaults to state code **29**. Enable GST only with your actual regular GST registration; otherwise the app issues sales receipts without collecting GST.
-6. Set actual product prices, MRP, costs, HSN/SAC, verified tax rates, pack quantities and manufacturer barcodes. Add opening stock through product creation, CSV import of new SKUs, or a stock adjustment for an existing template. Receive supplier purchases thereafter.
-7. The warehouse PC also bills customers directly against warehouse stock, at retail or wholesale prices. Transfer physical goods from warehouse to outlet before selling them at the outlet. Set café ingredient units and recipes before café billing.
+1. Run `AlHidayaTraders-Setup-0.4.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
+2. Open the app from its desktop or Start Menu shortcut. The launcher serves the interface at `127.0.0.1:8765` and must remain open.
+3. Choose the default transaction location in the header or Settings. Every node can work with both locations, receive purchases, record payments, manage stock and products, define recipes, issue credit bills and change business/GST details.
+4. Confirm real prices, stock, pack quantities, barcodes and tax classifications before live trading. Karnataka defaults to state code 29. The installer is unsigned and remains a pilot; physical printer/scanner testing and the 0.4.0 installer execution on Windows 10/11 have not been verified here.
 
-The installer includes the official Python 3.14.8 embedded Windows runtime and its licence. It is currently **unsigned**. Its build was verified on Linux; actual Windows install, update, uninstall and physical printer/scanner testing have not been performed in this workspace.
+## Connect a node to the online business
+
+1. As owner in the online app, open Account & staff → Connect a Windows PC. Choose its default location and generate a one-time code. The code expires after ten minutes and binds to one identity; it does not assign a restricted device role or stock quota.
+2. On an empty Windows app or one containing only disposable samples, open Settings → Connect to online business. Enter the server HTTPS origin, code and a PC name. The app backs up existing local records, then adopts the server's shared records. This join flow does not merge real historical databases.
+3. On an already paired node, upgrade in place and click Sync now. The 0.4.0 sync protocol requires every connected Windows installation to upgrade; older apps retain their local records but must update before exchange.
+4. If the same server's IP/domain changes, use Settings → Update server address. This verifies the existing credential and business identity at the new HTTPS origin, and preserves records and pending operations. This does not migrate to a new server/business.
+5. Exchange runs every 30 seconds while the launcher is open. Offline changes stay in the local database and upload on reconnection. The online server also relays changes between PCs. Repeated uploads are idempotent.
+
+Device capability restrictions and per-PC stock allocations from 0.3.0 are superseded. Existing stock and invoices are preserved; old allocation metadata no longer limits operations. Customer and supplier ledger changes are validated against their documents/payments; invoice snapshots remain immutable. Any node can reverse a synced invoice if it is unreversed and its payment history permits reversal.
+
+## Offline conflicts and shared data
+
+All nodes see the last stock/ledger state they have received. Two disconnected PCs can therefore sell the same physical stock or collect the same due. This version does not guarantee global stock availability or credit limits while nodes cannot communicate.
+
+Sync rejects an event that would make central stock or a party balance negative, exceed a customer's credit limit, duplicate a reversal, or violate invoice/ledger integrity. The whole event rolls back; its original local record remains, Settings shows the conflict, and subsequent events from that node wait behind it. Downloads continue where they can be applied. Reconcile the actual stock/payment situation before retrying. There is no automatic financial-conflict resolution or self-service void-pending-event screen; unresolved conflicts require assisted reconciliation. Do not delete database rows or sync files to hide a problem.
+
+Product, profile, recipe and business-setting edits use timestamped last-write order. Concurrent edits can overwrite each other without a merge screen; keep node clocks synchronised and coordinate sensitive catalogue/GST changes. Concurrent creation of the same SKU/barcode is rejected instead of silently combining different products. Invoice IDs still include a device-derived prefix and financial-year sequence.
+
+## Serverless folder sync
+
+Before hosting a server, independent PCs can exchange immutable events through the same shared folder (for example an available-offline OneDrive folder or file replication tool). Enter the local path in each PC's Settings; paths may differ. Start with the catalogue and stock on one node, exchange those records before recording the same SKUs elsewhere, then operate from any node. All nodes have the same functions. Last exchange means a folder scan completed, not proof the transport provider has delivered files.
+
+Folder and server sync cannot be enabled together. Never place the live SQLite database in a cloud folder or share it while running. Every PC needs its own database and identity; copying a live paired database to another PC duplicates identity and is not pairing.
 
 ## What is implemented
 
@@ -28,41 +47,13 @@ The installer includes the official Python 3.14.8 embedded Windows runtime and i
 
 The starter catalogue is a collection of **templates**, not a complete or verified current list of Indian manufacturers' SKUs. Pack availability differs by region and changes over time. Names, size examples and packaging are editable. Prices and stock are zero; actual GTIN/EAN/UPC barcodes are deliberately blank; HSN/rates are unconfirmed. A product cannot be sold without a selling price. GST-enabled transactions require the product's tax confirmation and HSN/SAC. A tax rate of zero must be an intentional verified classification, not an assumption from a template.
 
-## Sync between separate addresses
+## Customer profiles and WhatsApp
 
-Use one **main warehouse PC** for stock administration; additional trading/café tills use assigned stock allowances.
+Profiles retain mobile, email, address, GSTIN, notes, retail/wholesale preference, credit limit, opt-in and ledger history. Café walk-in profiles are optional; mobile lookup is available. Supplier profiles, credit sales and payments work on every node, including offline.
 
-1. Set up the same shared folder using your existing cloud-folder/replication software, for example a shared OneDrive folder or a self-managed file replication tool.
-2. Make the folder available offline on **both PCs**. Give access only to trusted business operators; the transaction files contain business records and are not encrypted by this app.
-3. In each app's Settings, enter the **local path to that shared folder**. Paths may differ across PCs.
-4. Each device creates immutable JSON transaction files inside `AlHidayaSync-v1`. The app exports/imports every 30 seconds while open; **Sync now** runs an exchange immediately. Your folder software transports the files when online.
-5. For first setup, assign Warehouse, configure its catalogue and stock, sync it, wait for the folder to upload/download, and then sync the Outlet. Do **not** independently enter the same products on both devices.
-6. A transfer is available to the receiving PC only after the transfer transaction reaches it. During outages, additional tills bill only against their remaining stock allowance. The main PC sells unallocated stock. Location restrictions prevent one PC from editing the other site's sale/stock operations.
-7. Failed imports remain unapplied and appear under **Sync needs attention**. The transaction remains in the shared folder and can retry after missing earlier records arrive. Never delete/edit transaction files to hide a conflict.
+WhatsApp configuration and queue controls are available on each node. Automation starts disabled and requires the official Meta Cloud API sender ID, supported Graph API version, token, approved language/templates and recipient opt-in. The WhatsApp Business mobile app subscription alone does not provide the API token. Templates use three body parameters: invoice = customer/name, invoice number, amount; payment = name, amount, note; internal = business, update type, summary. Internal updates cover low stock, purchases, transfers and daily summaries. Group sending, PDF attachment delivery and delivery/read webhooks are not implemented.
 
-`Last exchange` means a local folder scan completed, **not confirmation of upload or receipt by the other PC**. This does not implement a hosted sync service. Keep both Windows clocks automatically synchronised: master-record conflicts use timestamped last-write order. Product and recipe administration belongs to the warehouse PC. Customer credit and payments are managed on the main PC. Additional tills require fully paid bills in the serverless phase.
-
-Never share the live SQLite database using a cloud folder, network drive or manual copying while it is in use. Each PC must have its own database and device identity. Restoring one PC's backup onto the second PC as an independent install duplicates its device identity and is not a pairing procedure.
-
-## Stock allowances for additional PCs
-
-Pair each additional PC by selecting **Join the existing business**, its location and sync folder. Sync its registration to the main PC. In **Inventory → PC stock allowances**, grant quantities to the target till, then sync both PCs before billing. Transfer goods to Outlet before granting outlet stock. For café recipes, grant the ingredients consumed by each recipe.
-
-A grant reserves existing stock; it does not add or transfer physical goods. The main PC cannot sell quantities reserved for other tills. Each disconnected till can sell only its grant, avoiding overselling by several offline PCs. A till releases unused allowances itself; sync that release before reallocating. The owner cannot safely reclaim a grant while its till may still be selling offline.
-
-For an upgrade from 0.1.0: stop billing on all PCs, exchange all outstanding events, back up every PC, upgrade all installations, establish one main PC, then register and allocate each additional till. Do not mix old and new builds during trading.
-
-## Customer profiles and WhatsApp automation
-
-Customer profiles keep phone, email, address, GSTIN, notes, preferred retail/wholesale pricing, credit limit and ledger history. Café walk-in billing remains available without a profile; optional mobile lookup finds existing customers. Main-PC credit limits are enforced before credit billing.
-
-**WhatsApp updates** configures individual internal recipients and a local message queue. Internal updates cover low stock (once per product/day/recipient), purchases, warehouse-to-café transfers, and an optional daily summary. Customer notifications cover invoice summaries and later payment receipts. These send text summaries, not invoice PDFs. Main-PC queueing also handles sales received through sync. Daily summaries report only records received by the latest exchange and run while the main app is open, after its configured local time.
-
-Automation starts disabled. Configure your official Meta WhatsApp Business sender ID, supported Graph API version, token, language, and approved templates. Each template must have exactly three body text parameters and no required header/button parameters: invoice = customer/name, invoice number, total; payment = customer/name, amount, note; internal = business, update type, summary. Obtain recipient opt-in before enabling their notifications. Use individual mobile recipients; group sending is not implemented. Meta messaging charges may apply.
-
-The main PC sends while the app is open and internet is available; SQLite retains queued messages across outages. Temporary API errors retry with backoff. Lost responses and interrupted sends become **uncertain**, with no automatic resend. **Accepted** means accepted by Meta, not delivered/read. Delivery webhooks, manual resolution/resend controls, and the AWS online platform are not implemented in this release. Do not expose the local app publicly.
-
-The token is excluded from the database, sync, exports, and database backups. Windows protects it using your Windows account (DPAPI); source runs on other operating systems use a private local file. Reconfigure it after moving/restoring to another account or PC. Internal recipients, WhatsApp configuration, and the outbox belong to the main PC and do not replicate to tills.
+Configure one active notification sender for the business to avoid separate nodes sending duplicate summaries. Sender tokens, recipient configuration and outboxes are local and do not replicate. Windows DPAPI protects tokens for the current account; tokens are excluded from database backups and sync. Internet is needed to send. API accepted is not delivered/read. Interrupted/lost responses become uncertain and are not automatically retried. No actual WhatsApp messages have been sent during testing.
 
 ## Backups, closing and updates
 
@@ -89,52 +80,24 @@ Restore validates the backup and makes a local snapshot before replacement. When
 - UPI/card/bank selections record an externally completed payment. They do not initiate or verify payment-terminal or bank transactions.
 - Cash drawers, weighing scales, silent raw ESC/POS printing and kitchen hardware integrations require specific device testing/adapters.
 
-## Pilot boundaries before live use
+## Staff permissions and pilot boundaries
 
-- Main-PC/till restrictions control normal app workflows; they are not staff authentication. The application uses Windows-account/local-file access rather than individual staff logins. Local records and sync files are not encrypted by the app. Do not expose its HTTP listener to a LAN or internet.
-- Expiry is per SKU, not per batch or FEFO allocation. Use separate SKUs for separate batches for now.
-- Internal full-document reversals restore stock/credit and require external refund reconciliation. They are **not statutory GST credit notes**, and partial item returns are not implemented. Avoid using this reversal flow for GST returns; add accountant-reviewed credit/debit-note handling before that workflow goes live.
-- Regular-registration basic GST calculation is present. Composition scheme billing, automatic HSN/rate lookup, specific/non-percentage cess, e-invoice IRN/QR, e-way bill generation, GST return filing, ITC eligibility, accountant-certified books and automated regulatory updates are not provided.
-- Contribution reports use sales excluding output tax minus recorded acquisition/recipe costs and expenses. Acquisition costs include supplier tax. This is a management estimate, not a statutory profit-and-loss statement or stock valuation method for filing.
-- Purchase/sales orders, batch stock, delivery challans, partial returns, staff management, split payments, shift cash closing, loyalty and Tally integration remain future work.
-- Sync is eventual and folder-based. The local queue and conflict handling are tested; live cloud-provider transport, power failures, large-volume performance and a full trading shift still need a supervised pilot.
+Node capabilities are equal. The online app still has owner/manager/cashier/viewer permissions for staff accounts, as requested; those apply to people rather than making a warehouse or café PC special. Windows currently relies on the Windows account and local-file access, with no individual local staff login. Protect its files and do not expose its local HTTP listener publicly.
 
-## Run from source / rebuild
+- Expiry is per SKU, not batch/FEFO. Separate batch SKUs are needed.
+- Full internal reversals require refund reconciliation and do not generate statutory GST credit notes. Partial returns are not implemented.
+- Basic regular-registration GST and percentage cess are present; composition billing, specific cess, IRN/e-way bills, portal filing and accountant-certified books are not provided.
+- Contribution is a management estimate using recorded acquisition/recipe costs, not statutory profit/valuation.
+- Orders, challans, split payments, cash shifts, loyalty, Tally integration and production recovery/scaling remain future work.
+- The hosted review uses central SQLite behind Caddy HTTPS with hashed passwords, sessions, CSRF protection and staff roles. It is a review deployment. Its previously scheduled expiry/deletion was cancelled at the user's request. There is no newly scheduled expiry.
 
-Python 3.12+ with the standard library is enough to run the app; there are no runtime pip dependencies:
+## Source and verification
+
+Python 3.12+ with the standard library runs the app; no runtime pip dependencies are needed:
 
 ```sh
 python app.py
 python -m unittest discover -s tests -v
 ```
 
-For a disposable exploration database:
-
-```sh
-python app.py --data-dir ./sample-data --port 8766
-```
-
-Choose **Explore sample shop** while the database is empty and unassigned. Sample invoices are never inserted automatically. Always use a separate clean data directory for live trading.
-
-See `packaging/build.py` for reproducible bundled-runtime installer builds (NSIS required). `packaging/build-windows.bat` runs it on a Windows build machine with Python and NSIS; those tools are **not needed on shop PCs**. The builder verifies the pinned embedded runtime SHA-256 before packaging.
-
-Research and the choices behind this pilot are documented in `RESEARCH.md`.
-
-## Hosted review (0.2.1)
-
-The optional cloud/server.py serves the public marketing page and a login-protected online copy of the shop manager. It uses a central SQLite database on one small server, with owner, manager, cashier and viewer accounts, assigned locations, session expiry, password hashing, CSRF checks and server-side role enforcement. It binds to localhost behind Caddy HTTPS. This is a review implementation, not the finished scalable AWS platform. Hosted data is separate from desktop databases; desktop-to-server sync, live WhatsApp delivery webhooks and production deployment/recovery are not yet connected. The browser review needs internet; offline billing remains in the Windows app.
-
-The user requested a three-hour temporary AWS review. Temporary addresses, passwords and AWS resource records are excluded from Git. The supplied repository is currently public.
-
-## Online pairing (0.3.0 pilot)
-
-1. Install the 0.3.0 Windows installer over the existing app; it closes the app and makes a pre-update backup.
-2. Sign in to the online app as owner, open **Account & staff → Offline PCs → Connect a Windows PC**. Choose Warehouse for trading/retail or Outlet for the café. Choose how much currently unallocated stock to reserve for that PC.
-3. In Windows open **Settings → Connect to online business**. Enter the HTTPS server origin, one-time code and a PC name. Confirm that the existing records are disposable samples. Pairing saves a verified local backup, then adopts the server's records. Real-data merging is not implemented. Codes expire in ten minutes and bind to one PC.
-4. Leave the launcher open. Saved bills, customer profiles and expenses exchange every 30 seconds when connected; **Sync now** retries immediately. Offline bills remain locally saved when the server is unreachable.
-5. The server administers catalogue, GST, recipes, purchases, transfers, supplier/customer credit and stock grants. Paired offline tills issue fully paid sales, maintain customer profiles, record expenses and reverse their own bills. They sell only their reserved stock or ingredients, so several disconnected PCs cannot consume the same allowance. Stock received online is granted manually through **Inventory → PC stock allowances**, then the till syncs.
-6. The website sells the unallocated balance. Release unused allowance on its issuing PC and sync before disabling that PC. Disabling sync does not reclaim stock that the offline PC may already have sold.
-
-Credentials are stored outside the database and protected for the current Windows account using DPAPI. Database backups alone do not move a paired identity or credential to a different PC; reconcile before restoring or replacing a till. Folder sync and server sync cannot be enabled together. Server-authoritative customer edits use event timestamps; concurrent profile changes use the last event, without a manual conflict-merge screen.
-
-The temporary AWS review server will be deleted at the agreed expiry. Desktop data survives, but exchange stops until a permanent compatible server is provisioned. This release does not automatically migrate a paired business to another server or provide production disaster recovery.
+For disposable exploration use `python app.py --data-dir ./sample-data --port 8766` and Explore sample shop. Packaging uses NSIS and the pinned official Python 3.14.8 embedded runtime with SHA-256 verification. Build tooling is not needed on shop PCs. See `packaging/build.py`, `TESTING.md` and `RESEARCH.md`.

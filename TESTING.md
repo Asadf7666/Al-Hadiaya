@@ -1,4 +1,4 @@
-# Verification of pilot 0.2.1
+# Verification history and current pilot 0.4.0
 
 Executed in the Linux build workspace on 5 October 2026.
 
@@ -30,3 +30,7 @@ The HTTPS hosted browser review passed owner login, primary screens, a saved dem
 0.3.0 adds real local HTTP tests with separate server/till databases: backup/sample replacement, private credential storage, offline save/reconnect, duplicate-upload retry after a lost response, two offline tills plus online stock exhaustion, customer relay, reversal, allowance release, disabled credentials, café ingredients and rejected catalogue forgery. These tests do not claim the new Windows installer has been executed on Windows.
 
 Hosted 0.3.0 validation also passed against the actual AWS HTTPS origin: owner-generated code via the browser UI, Windows-app UI join using a local desktop HTTP server, verified sample backup, online stock grant, deliberately disconnected local sale, repeated reconnect without duplicate invoices, customer profiles in both directions, reversal and release of all test allowance. The test PC was disabled afterward. No JavaScript errors were reported. The hosted installer and source archive were downloaded and checked against their SHA-256 manifest. The desktop UI test ran on Linux; the 0.3.0 Windows installer itself was not executed on Windows.
+
+## Version 0.4.0 — equal node capabilities
+
+52 automated tests pass in the Linux workspace. New coverage verifies full business operations from an Outlet-labelled node: supplier creation, offline purchases, supplier payments, catalogue/recipe edits, transfers, wastage, business settings, customer credit and receipts. Independent nodes converge through real local HTTP transport. Any node can reverse another node's invoice; concurrent duplicate reversals are rejected atomically. Competing stock and payment events remain locally retained and visible for review, with later events held behind the conflict. Existing paired nodes can verify/change their HTTPS origin without replacing records. This supersedes the prior device-restriction/stock-quota tests. Prior Windows runtime/DPAPI results do not establish execution of the new 0.4.0 installer on Windows.

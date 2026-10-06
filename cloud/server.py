@@ -83,8 +83,6 @@ class Online:
             for key in tuple(s):
                 if key.startswith('whatsapp_'):s[key]=False if isinstance(s[key],bool) else ''
             result['devices']=[];result['allocations']=[];result['sync_errors']=[]
-            for r in result['stocks']:
-                r['quantity']=max(0,r['quantity']-sum(a['quantity'] for a in allocated if a['product_id']==r['product_id'] and a['location']==r['location']))
         if user['role'] in ('cashier','viewer'):
             result['stocks']=[r for r in result['stocks'] if r['location']==user['location']]
             for p in result['products']:
@@ -102,7 +100,7 @@ class Online:
         if role=='viewer':raise PermissionError('This account is read-only.')
         if role=='cashier' and action not in CASHIER:raise PermissionError('Cashier permission does not allow this operation.')
         if role=='manager' and action not in MANAGER:raise PermissionError('Owner permission is required.')
-        if action in ('sync','shutdown','demo','catalog','cloud_pair'):
+        if action in ('sync','shutdown','cloud_pair','cloud_address'):
             raise ValueError('This local-device operation is unavailable in the hosted review.')
         if action=='settings':data={k:v for k,v in data.items() if k in SETTINGS}
         if role in ('manager','cashier'):
@@ -139,7 +137,7 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/':return self.send(200,(ROOT/'marketing/index.html').read_bytes(),'text/html; charset=utf-8')
         if path=='/login':return self.send(200,LOGIN.format(error=''),'text/html; charset=utf-8')
         if path=='/health':return self.send(200,{'status':'ok'})
-        downloads={'/downloads/AlHidayaTraders-Setup-0.3.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.3.0.zip':'application/zip'}
+        downloads={'/downloads/AlHidayaTraders-Setup-0.4.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.4.0.zip':'application/zip'}
         if path in downloads:
             file=ROOT/'dist'/Path(path).name
             if not file.is_file():return self.send(404,{'error':'Download is being prepared.'})
@@ -216,7 +214,7 @@ class Handler(BaseHTTPRequestHandler):
             if path in ('/api/peer-disable','/api/peer-enable'):
                 if user['role']!='owner':raise PermissionError('Owner permission required.')
                 with self.online.shop.connect() as db:db.execute('UPDATE cloud_peers SET active=? WHERE device_id=?',(int(path.endswith('peer-enable')),data.get('device_id')))
-                return self.send(200,{'message':'Sync enabled again.' if path.endswith('peer-enable') else 'Sync disabled. Reserved stock remains protected until the PC releases or reconciles it.'})
+                return self.send(200,{'message':'Sync enabled again.' if path.endswith('peer-enable') else 'Sync disabled. Saved records remain on this node; enable sync to exchange them again.'})
             if path=='/api/location':
                 if user['role']!='owner':raise PermissionError('Only owners can switch review locations.')
                 if data.get('location') not in ('Warehouse','Outlet'):raise ValueError('Choose a valid location.')

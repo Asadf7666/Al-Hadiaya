@@ -101,7 +101,7 @@ class Shop:
                         'invoice_prefix':'AH','backup_folder':'','last_backup':'','printer':'80','demo':False,
                         'device_id':secrets.token_hex(8),'device_location':'','sync_folder':'','last_sync':'',
                         'admin_device_id':'','device_name':'','setup_role':'owner',
-                        'cloud_url':'','cloud_business_id':'','cloud_cursor':0,
+                        'cloud_url':'','cloud_business_id':'','cloud_cursor':0,'node_mode':'unified',
                         'whatsapp_enabled':False,'whatsapp_phone_id':'','whatsapp_api_version':'','whatsapp_language':'en',
                         'whatsapp_invoice_template':'','whatsapp_payment_template':'','whatsapp_internal_template':'',
                         'whatsapp_daily_time':'','whatsapp_low_stock':True,'whatsapp_transfers':True,'whatsapp_purchases':True}
@@ -167,7 +167,7 @@ class Shop:
         db.execute('INSERT OR IGNORE INTO stocks VALUES(?,?,0)',(pid,location))
         stock = db.execute('SELECT quantity FROM stocks WHERE product_id=? AND location=?',(pid,location)).fetchone()[0]
         settings = self.settings(db)
-        if settings['admin_device_id']:
+        if settings['admin_device_id'] and settings.get('node_mode')!='unified':
             actor = settings['device_id']
             if actor == settings['admin_device_id']:
                 reserved = db.execute('SELECT COALESCE(SUM(quantity),0) FROM allocations WHERE product_id=? AND location=?',(pid,location)).fetchone()[0]
@@ -186,6 +186,9 @@ class Shop:
         db.execute('INSERT INTO movements(date,product_id,quantity,reference,note,location) VALUES(?,?,?,?,?,?)',(now(),pid,qty,ref,note,location))
 
     def act(self, action, data):
+        if action == 'cloud_address':
+            from cloud_sync import change_server
+            return change_server(self,data)
         if action == 'cloud_pair':
             from cloud_sync import pair_desktop
             return pair_desktop(self,data)
@@ -201,22 +204,7 @@ class Shop:
             device_location = self.settings(db)['device_location']
             configuration = self.settings(db)
             admin = configuration['admin_device_id']
-            is_admin = not device_location or (admin and admin == configuration['device_id'])
-            if device_location and not is_admin:
-                allowed = ('sale','expense','party','reverse','settings','release_allocation')
-                if action not in allowed:
-                    raise ValueError('Use the main warehouse PC for purchases, payments, stock administration and catalogue changes.')
-                if not admin and action != 'settings':
-                    raise ValueError('Sync with the main warehouse PC and receive a stock allocation before trading.')
-                if action == 'party' and data.get('kind') != 'customer':
-                    raise ValueError('This till can add customers; suppliers are managed on the main PC.')
-            if device_location and action in ('sale','purchase','adjust'):
-                if data.get('location','Outlet' if action != 'purchase' else 'Warehouse') != device_location:
-                    raise ValueError('Use this PC only for '+device_location+' transactions.')
-            if device_location and action == 'transfer' and data.get('source') != device_location:
-                raise ValueError('Transfers must be dispatched from this PC’s location.')
-            if device_location == 'Outlet' and action in ('product','recipe','demo','catalog','import_products'):
-                raise ValueError('Manage products and recipes on the warehouse PC, then sync.')
+            is_admin = configuration.get('node_mode')=='unified' or not device_location or (admin and admin == configuration['device_id'])
             result = {}
             if action == 'product':
                 result = self.save_product(db,data)
@@ -306,8 +294,10 @@ class Shop:
                 self.movement(db,pid,qty,ref,note,target)
                 result = {'id':ref}
             elif action == 'allocate':
+                if configuration.get('node_mode')=='unified':
+                    raise ValueError('Stock is shared across all nodes; PC allocations are no longer used.')
                 if not is_admin or not admin:
-                    raise ValueError('Only the main warehouse PC can allocate stock to tills.')
+                    raise ValueError('Stock allocation is unavailable.')
                 target = required(data.get('device_id'),'Target PC')
                 device = db.execute('SELECT * FROM devices WHERE id=?',(target,)).fetchone()
                 if not device or target == admin:
@@ -379,8 +369,6 @@ class Shop:
             elif action == 'settings':
                 if configuration.get('cloud_url') and data.get('sync_folder'):
                     raise ValueError('This PC uses authenticated server sync. Do not also enable folder sync.')
-                if configuration.get('cloud_url') and data.get('device_location',device_location)!=device_location:
-                    raise ValueError('This PC’s location is assigned by its server pairing.')
                 if not is_admin and admin:
                     shared = ('name','address','phone','gstin','state','gst_enabled','invoice_prefix')
                     for key in shared:
@@ -405,7 +393,7 @@ class Shop:
                         if k == 'device_location' and v:
                             self.location(v)
                             old = self.settings(db)['device_location']
-                            if old and old != v and db.execute('SELECT 1 FROM documents LIMIT 1').fetchone():
+                            if configuration.get('node_mode')!='unified' and old and old != v and db.execute('SELECT 1 FROM documents LIMIT 1').fetchone():
                                 raise ValueError('Device location cannot change after billing starts.')
                         db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(v),k))
                 updated = self.settings(db)
@@ -414,7 +402,7 @@ class Shop:
                     if role not in ('owner','join'):
                         raise ValueError('Choose first/main PC or joining PC.')
                     if not admin and updated['device_location'] == 'Warehouse' and role == 'owner':
-                        db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(updated['device_id']),'admin_device_id'))
+                        if updated.get('node_mode')!='unified':db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(updated['device_id']),'admin_device_id'))
                         if not db.execute('SELECT 1 FROM products').fetchone():
                             result = self.load_catalog(db)
                     name = updated['device_name'].strip() or updated['device_location']+' '+updated['device_id'][:6].upper()
@@ -443,7 +431,7 @@ class Shop:
 
     def queue_updates(self, db, action, data, result, event_id):
         settings = self.settings(db)
-        if not settings['whatsapp_enabled'] or (settings['admin_device_id'] and settings['device_id'] != settings['admin_device_id']):
+        if not settings['whatsapp_enabled']:
             return
         summary = ''
         if action == 'sale' and result.get('id'):
@@ -477,7 +465,7 @@ class Shop:
     def daily_update(self):
         with self.lock,self.connect() as db:
             settings=self.settings(db)
-            if not settings['whatsapp_enabled'] or not settings['whatsapp_daily_time'] or (settings['admin_device_id'] and settings['device_id']!=settings['admin_device_id']):
+            if not settings['whatsapp_enabled'] or not settings['whatsapp_daily_time']:
                 return
             if dt.datetime.now().time() < dt.time.fromisoformat(settings['whatsapp_daily_time']):
                 return
@@ -576,7 +564,7 @@ class Shop:
             current = [r for r in after['recipes'] if r['product_id'] == pid]
             if previous != current:
                 payload['recipes'].append({'product_id':pid,'items':current})
-        allowed = ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id')
+        allowed = ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id','node_mode')
         prevsettings = {r['key']:r['value'] for r in before['settings']}
         payload['settings'] = [r for r in after['settings'] if r['key'] in allowed and r['value'] != prevsettings.get(r['key'])]
         eid = f'{time.time_ns():020d}-'+self.settings(db)['device_id']+'-'+secrets.token_hex(4)
@@ -603,12 +591,19 @@ class Shop:
             return True
         admin = self.settings(db)['admin_device_id']
         incoming_admin = next((json.loads(r['value']) for r in payload['settings'] if r['key']=='admin_device_id'),None)
-        if admin and incoming_admin and incoming_admin != admin:
+        unified=self.settings(db).get('node_mode')=='unified'
+        if not unified and admin and incoming_admin and incoming_admin != admin:
             raise ValueError('Two main PCs were configured. Pair joining PCs with the existing business instead of creating another shop.')
-        if admin and event['device'] != admin and (payload['masters'].get('products') or payload['recipes'] or payload['settings']):
+        if not unified and admin and event['device'] != admin and (payload['masters'].get('products') or payload['recipes'] or payload['settings']):
             raise ValueError('Only the main PC may change catalogue, recipes or business settings.')
         for table in ('products','parties','documents','devices'):
             for row in payload['masters'].get(table,[]):
+                if table=='documents':
+                    old=db.execute('SELECT * FROM documents WHERE id=?',(row['id'],)).fetchone()
+                    if old:
+                        same={k:v for k,v in dict(old).items() if k!='reversed'}=={k:v for k,v in row.items() if k!='reversed'}
+                        if not same or old['reversed'] or not row['reversed']:
+                            raise ValueError('Invoice already changed or reversed on another node. Review this transaction.')
                 if not newer(table+':'+str(row['id'])):
                     continue
                 permitted = {r[1] for r in db.execute('PRAGMA table_info('+table+')')}-({'stock'} if table == 'products' else {'balance'} if table == 'parties' else set())
@@ -616,7 +611,7 @@ class Shop:
                     raise ValueError('Invalid synced fields.')
                 cols = list(row)
                 db.execute('INSERT INTO '+table+'('+','.join(cols)+') VALUES('+','.join('?' for _ in cols)+') ON CONFLICT(id) DO UPDATE SET '+','.join(k+'=excluded.'+k for k in cols if k != 'id'),tuple(row.values()))
-        for row in payload['deltas'].get('allocations',[]):
+        for row in ([] if unified else payload['deltas'].get('allocations',[])):
             actor,pid,loc,delta = row['device_id'],row['product_id'],self.location(row['location']),float(row['delta'])
             if not __import__('math').isfinite(delta):
                 raise ValueError('Invalid stock allocation.')
@@ -638,9 +633,11 @@ class Shop:
             db.execute('UPDATE stocks SET quantity=ROUND(quantity+?,6) WHERE product_id=? AND location=?',(delta,pid,loc))
             db.execute('UPDATE products SET stock=ROUND(stock+?,6) WHERE id=?',(delta,pid))
         for row in payload['deltas']['parties']:
-            p = db.execute('SELECT balance FROM parties WHERE id=?',(row['id'],)).fetchone()
+            p = db.execute('SELECT balance,kind,credit_limit FROM parties WHERE id=?',(row['id'],)).fetchone()
             if not p or p[0]+row['delta'] < 0:
                 raise ValueError('Ledger conflict or missing earlier transaction. Review payments on both PCs.')
+            if p['kind']=='customer' and p['credit_limit']>0 and p['balance']+row['delta']>p['credit_limit']:
+                raise ValueError('Concurrent credit exceeds the customer limit. Reconcile this transaction before retrying.')
             db.execute('UPDATE parties SET balance=balance+? WHERE id=?',(row['delta'],row['id']))
         for table in ('lines','movements','payments','expenses'):
             for row in payload['append'].get(table,[]):
@@ -655,7 +652,7 @@ class Shop:
                 for item in recipe['items']:
                     db.execute('INSERT INTO recipes VALUES(?,?,?)',(item['product_id'],item['ingredient_id'],item['quantity']))
         for row in payload['settings']:
-            if row['key'] not in ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id'):
+            if row['key'] not in ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id','node_mode'):
                 raise ValueError('Invalid synced setting.')
             if newer('setting:'+row['key']):
                 db.execute('INSERT OR REPLACE INTO settings VALUES(?,?)',(row['key'],row['value']))
@@ -827,8 +824,8 @@ class Shop:
         if paid < total and not party:
             raise ValueError('Select a customer before creating a credit bill.')
         if kind == 'sale' and party and party.get('credit_limit',0)>0 and party['balance']+total-paid > party['credit_limit']:
-            raise ValueError('This sale would exceed the customer’s credit limit. Collect more payment or review the limit on the main PC.')
-        if kind == 'sale' and settings['device_location'] and settings['admin_device_id'] and settings['device_id'] != settings['admin_device_id'] and paid < total:
+            raise ValueError('This sale would exceed the customer’s credit limit. Collect more payment or review the customer’s credit limit.')
+        if settings.get('node_mode')!='unified' and kind == 'sale' and settings['device_location'] and settings['admin_device_id'] and settings['device_id'] != settings['admin_device_id'] and paid < total:
             raise ValueError('In serverless mode, credit bills are issued at the main trading counter. Additional tills require full payment to avoid conflicting offline customer credit.')
         payment = self.method(data.get('payment','Cash'))
         db.execute('INSERT INTO documents(id,kind,date,party_id,total,tax,paid,payment,discount,reference,snapshot,location) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
@@ -845,10 +842,10 @@ class Shop:
         if not doc or doc['reversed']:
             raise ValueError('Document is missing or already reversed.')
         location = self.settings(db)['device_location']
-        if location and doc['location'] != location:
+        if self.settings(db).get('node_mode')!='unified' and location and doc['location'] != location:
             raise ValueError('Reverse this document on the PC that issued it.')
         snapshot = json.loads(doc['snapshot'])
-        if snapshot.get('device_id') and snapshot['device_id'] != self.settings(db)['device_id']:
+        if self.settings(db).get('node_mode')!='unified' and snapshot.get('device_id') and snapshot['device_id'] != self.settings(db)['device_id']:
             raise ValueError('Reverse this document on its issuing PC, then sync.')
         reason = required(data.get('reason'),'Reason')
         outstanding = doc['total']-doc['paid']
