@@ -61,3 +61,12 @@ The test WABA reports account_review_status APPROVED but business_verification_s
 Catalogue setup requires suitable business_management/catalog_management authorization, an owned Commerce catalogue, accurate product prices/photos and a link to WhatsApp. The app's starter inventory does not automatically become a Meta Commerce catalogue. Standard Cloud API integration does not create WhatsApp Channels or app broadcast lists.
 
 See `LIVE-TEST-RESULTS.md` for the 16 accepted approved-sample tests, actual errors and remaining live checks.
+
+
+## Photo campaigns and shop catalogue in 0.6
+
+Update the hosted app and Windows installations with the 0.6 installer. Protocol 3 remains compatible with 0.5 nodes. In WhatsApp updates, refresh Meta templates, upload the campaign image, choose a supported marketing template and save a draft. Review the image and exact wording before approval. Pending templates can be drafted but cannot send. IMAGE-header templates accept an image; body templates accept zero or three text variables. Fixed-body templates do not use the offer field in their message.
+
+The corrected provider names are `al_hadiya_invoice`, `al_hadiya_payment`, `al_hadiya_internal`, `al_hadiya_offer`, and `al_hadiya_offer_image`. All five returned PENDING on submission. Use the supplied text definitions for the four body templates. For the image template, choose IMAGE as header in Meta and upload the Al Hadiya campaign artwork as its review sample; body: `Hello {{1}}, welcome to {{2}}.\n{{3}}\nReply STOP to stop promotional messages.` Example values: Customer, Al Hadiya Traders, Fresh drinks at our takeaway counter.
+
+Use Photo catalogue & order requests to select a product, upload a photo, write its description and publish it after confirming its retail price. Enable the public catalogue in Catalogue settings. Customers browse `/catalogue`; staff review requests and prepare a POS bill before taking payment. This independent web catalogue works without a Meta Commerce catalogue; native WhatsApp product messages still require Commerce setup. Media/publication/order-request data remain local to the installation. Folder backups include the `.media` sidecar; retain it with the database.

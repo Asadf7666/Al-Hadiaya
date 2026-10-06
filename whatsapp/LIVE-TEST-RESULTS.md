@@ -24,7 +24,7 @@ Meta returned account_review_status APPROVED for the test WABA, but business_ver
 
 Financial transactions and stock changes for message generation used a temporary shop database. No hosted business invoices or stock were changed. Only test notification logs were added to the hosted notification screen. Production automation remains paused and there are no configured staff recipients.
 
-The application's owner-approved campaign UI currently supports approved body-only templates with three text parameters. Image/button/carousel samples were exercised directly against Meta's API; this test does not add media campaign composition to the app UI. PDF invoice delivery, WhatsApp Channels, app broadcast-list posting, and group messaging are not implemented.
+Version 0.5's owner-approved campaign UI supported approved body-only templates with three text parameters. Image/button/carousel samples were exercised directly against Meta's API; this test does not add media campaign composition to the app UI. PDF invoice delivery, WhatsApp Channels, app broadcast-list posting, and group messaging are not implemented.
 
 ## Remaining checks
 
@@ -33,3 +33,12 @@ The application's owner-approved campaign UI currently supports approved body-on
 3. Authorize Commerce catalogue management, connect an owned catalogue with accurate retailer IDs, prices and product photos, then test actual product/card/cart messages. Do not publish the entire unpriced starter inventory as sellable Meta products.
 4. Confirm receipt of the 16 new sample messages. An API message ID proves acceptance, not delivery.
 5. Register the intended production business number and replace the temporary token with suitable production credentials before unattended operation.
+
+
+## Version 0.6 and corrected branding
+
+At approximately 14:13 Asia/Riyadh (11:13 UTC), Meta accepted a direct image message using the new Al Hadiya Traders artwork, with cold drinks, mint mojito and iced coffee. This replaces the flat PNG test fixture. Recipient confirmation of this specific photo remains pending; acceptance does not establish delivery.
+
+Five correctly branded templates were submitted and returned PENDING: `al_hadiya_invoice`, `al_hadiya_payment`, `al_hadiya_internal`, `al_hadiya_offer`, and the IMAGE-header `al_hadiya_offer_image`. The previous `al_hidaya_*` submissions remain historical provider records. Hosted sender settings now reference the corrected utility names. Production automation remains paused.
+
+Version 0.6 adds image upload, image-template campaign draft/preview/approval and a separate public web photo catalogue with baskets and contact-consented order requests. Chromium verified image upload and campaign preview, order submission and a subsequent basket, using an isolated fixture. Hosted verification passed for the image library, campaign form, public banner, mobile rendering, and installer/source checksums. There are no live published products yet: actual product photographs and confirmed prices are required. Native WhatsApp Commerce catalogue permissions/linkage are still pending. PDF invoice delivery, carousels in app campaigns, Channels and group messaging remain unavailable.
