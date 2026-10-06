@@ -135,3 +135,19 @@ class ConnectionTests(unittest.TestCase):
   a=self.till();bill=self.sale(a)
   a.act('cloud_address',dict(url=self.url));self.assertEqual(a.state()['documents'][0]['id'],bill)
   a.sync();self.assertEqual(len(self.web.shop.state()['documents']),1)
+ def test_upgrade_preserves_legacy_paired_identity_records_and_unsent_invoice(self):
+  a=self.till();bill=self.sale(a,2)
+  original=credential(a)
+  with a.connect() as db:
+   s=a.settings(db);ident=s['device_id']
+   db.execute("DELETE FROM settings WHERE key='node_mode'")
+   db.execute("UPDATE settings SET value=? WHERE key='admin_device_id'",(json.dumps('0123456789abcdef'),))
+   event=db.execute('SELECT id,payload FROM sync_events ORDER BY date DESC LIMIT 1').fetchone();payload=json.loads(event['payload'])
+   payload['deltas']['allocations']=[dict(device_id=ident,product_id=self.pid,location='Warehouse',delta=-2)]
+   db.execute('UPDATE sync_events SET payload=? WHERE id=?',(json.dumps(payload),event['id']))
+  updated=Shop(a.folder)
+  self.assertEqual(updated.state()['settings']['device_id'],ident)
+  self.assertEqual(credential(updated),original)
+  updated.act('party',dict(kind='supplier',name='Supplier after upgrade'))
+  updated.sync();self.assertEqual(self.quantity(self.web.shop),18)
+  self.assertEqual(updated.state()['documents'][0]['id'],bill)
