@@ -1,17 +1,19 @@
-# Al Hadiya Traders — Business Manager 1.1.0
+# Al Hadiya Traders — Business Manager 1.2.0
 
 An owned Windows and web shop manager for an Indian trading warehouse/retail counter and a takeaway café. Every paired PC has all business functions. Warehouse and Outlet identify transaction locations, not device permissions or separate applications. Internet is not needed for local Windows operations. The browser website requires a connection to its server.
 
 ## Install or update Windows
 
-1. Run `AlHidayaTraders-Setup-1.1.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
+1. Run `AlHidayaTraders-Setup-1.2.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
 2. Open the app from its desktop or Start Menu shortcut. The launcher serves the interface at `127.0.0.1:8765` and must remain open.
 3. Choose the default transaction location in the header or Settings. Every node can work with both locations, receive purchases, record payments, manage stock and products, define recipes, issue credit bills and change business/GST details.
 4. Confirm real prices, stock, pack quantities, barcodes and tax classifications before live trading. Karnataka defaults to state code 29. The installer is unsigned. Physical printer/scanner acceptance is required; the Windows release workflow executes installation/update checks before publishing a download.
 
 ## Keyboard access
 
-Use Tab and Shift+Tab for all controls, Ctrl+K to find any permitted page/action, and Alt+K for the shortcut guide. F2 opens POS, F3 focuses barcode/product search, F8 opens checkout and Ctrl+Enter saves a validated form. Product cards and view tabs support arrow keys. Forms start on the first editable field, stay within the dialog, and return focus when closed. On Mac, Command+K and Command+Enter are also supported. See [all shortcuts](docs/KEYBOARD.md).
+F2 opens POS ready to scan; F3 searches; F5 chooses a customer; F6 edits quantity; F7 edits discount; F8 checks out. In checkout, Alt+C/U/D/B chooses Cash/UPI/Card/Bank and Ctrl+Enter saves. F10 prints the saved receipt; F2 returns to the next bill, retaining the café filter/location. Enter advances through form fields, Shift+Enter goes back, and Ctrl+Enter explicitly saves. Purchases scan/search each product, then Enter moves through quantity, cost and the next item; Alt+C sets a case and Alt+P focuses the amount paid.
+
+Tab/Shift+Tab reaches ordinary controls, Ctrl+K finds permitted pages/actions, and Alt+K opens help. Arrows navigate product cards, filters and record actions; Page Up/Down pages results. The POS updates the basket without replacing the scan field. Product/stock lookups are indexed and large result lists are paginated (60 POS products or 100 records per page, with the full catalogue still searchable). The release checks include 10,000 SKUs and 100 consecutive keyboard barcode scans, alongside desktop/web access, staff permissions and Windows installation/update. See [all shortcuts and workflows](docs/KEYBOARD.md).
 
 ## Review server removed
 
@@ -151,12 +153,12 @@ Internal notifications now itemise invoice products, quantities, price/tax/payme
 
 Stock alerts cover location-specific low stock, stockouts, lead-time reorder needs, and recorded SKU expiry within seven days. Each condition sends once per active episode; replenishment clears it and a later recurrence can alert again. Alerts remain visible in the workspace and daily summary. Expiry is per SKU: use separate SKUs for separate batches. One configured online sender should handle WhatsApp delivery; other nodes sync business events. Delivery still requires the authenticated Meta service window or an approved template, sender availability and recipient opt-in.
 
-Upgrade every Windows PC to 1.1.0 before syncing with the updated server (protocol 5 / file-sync format 3). Existing databases, pairing and customer records are preserved by the update. Check the Windows release workflow result and validate actual shop hardware before trading.
+Upgrade every Windows PC to 1.2.0 before syncing with the updated server (protocol 5 / file-sync format 3). Existing databases, pairing and customer records are preserved by the update. Check the Windows release workflow result and validate actual shop hardware before trading.
 
 
 ## v1 access, reliability and policy upgrade
 
-Download the installer from the verified [Windows workflow artifacts](https://github.com/Asadf7666/Al-Hadiaya/actions/workflows/windows-release.yml), or [GitHub Releases](https://github.com/Asadf7666/Al-Hadiaya/releases) when publication succeeds. Version 1.1.0 is published on GitHub Releases. If future automated publication is denied, the verified workflow artifact remains available. Keep a local copy of the installer. On the first desktop v1 launch, create an owner account (12–256 character password); sign-in works offline. Existing online passwords remain. Staff & access creates accounts, disables/enables staff and resets passwords; disabling/resetting revokes sessions. For local owner recovery, run the installed `tools/reset_owner.py --username owner` with the included Python console runtime under the Windows account owning the data.
+Download the installer from the verified [Windows workflow artifacts](https://github.com/Asadf7666/Al-Hadiaya/actions/workflows/windows-release.yml), or [GitHub Releases](https://github.com/Asadf7666/Al-Hadiaya/releases) when publication succeeds. Versioned installers are published after the Windows checks pass. If future automated publication is denied, the verified workflow artifact remains available. Keep a local copy of the installer. On the first desktop v1 launch, create an owner account (12–256 character password); sign-in works offline. Existing online passwords remain. Staff & access creates accounts, disables/enables staff and resets passwords; disabling/resetting revokes sessions. For local owner recovery, run the installed `tools/reset_owner.py --username owner` with the included Python console runtime under the Windows account owning the data.
 
 Financial retry keys commit with stock and ledger changes. Retrying the same interrupted request does not save a second bill. Unfinished POS baskets survive a tab reload; review current stock/prices before checkout. Café menu → Open café POS selects Outlet and the Café menu filter; walk-in customers are optional and saving bills consumes configured recipe ingredients. Pack-entry helpers, mobile navigation and role-aware screens reduce routine entry. Background backup, sync and WhatsApp tasks run independently and show status.
 

@@ -18,6 +18,8 @@ jobs:
         run: python -m unittest discover -s tests -q
       - name: Verify keyboard syntax and keyboard-only desktop/web workflows
         run: |
+          node --check static/app.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check static/keyboard.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m pip install playwright==1.62.0
@@ -27,6 +29,8 @@ jobs:
           python tools/browser_keyboard_check.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tools/browser_cafe_check.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/browser_entry_check.py
       - name: Install NSIS
         run: choco install nsis --yes --no-progress
       - name: Build verified embedded runtime installer

@@ -21,7 +21,7 @@ def focused(page,selector):
  try:page.wait_for_function('(s)=>document.activeElement.matches(s)',arg=selector,timeout=10000)
  except Exception as e:raise AssertionError('Expected focus '+selector+'; actual '+str(page.evaluate('({id:document.activeElement.id,tag:document.activeElement.tagName,text:document.activeElement.textContent.slice(0,80),dialog:document.querySelector("#modal").open})'))) from e
 def shortcut(page,key,route):
- page.keyboard.press(key);page.wait_for_function('(r)=>page===r',arg=route);focused(page,'#main')
+ page.keyboard.press(key);page.wait_for_function('(r)=>page===r',arg=route);focused(page,'#product-search' if key=='F2' else '#main')
 def seed(shop):
  shop.act('product',dict(name='Keyboard Cola',sku='KEY-COLA',barcode='8900000000011',category='Cold drinks',kind='stock',unit='bottle',price=50,cost=20,stock=20,location='Warehouse'))
  shop.act('product',dict(name='Keyboard Water',sku='KEY-WATER',category='Water',kind='stock',unit='bottle',price=20,cost=10,stock=20,location='Warehouse'))

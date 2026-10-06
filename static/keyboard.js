@@ -46,6 +46,7 @@
       const route = button.getAttribute('onclick')?.match(/navTo\('([^']+)/)?.[1];
       if (!route) return;
       button.dataset.kbKey = 'nav-'+route;
+      button.classList.toggle('active',page===route);
       button.setAttribute('aria-label', pages[route] || button.textContent.trim());
       if (page === route) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
       const shortcut = routes.find(([,name]) => name === route);
@@ -73,7 +74,7 @@
     });
     for (const [selector, names] of [['.purchase-line',['Product','Quantity','Cost per unit']],['.recipe-line',['Ingredient','Quantity per serving']]]) {
       document.querySelectorAll(selector).forEach((row, index) => row.querySelectorAll('select,input').forEach((el,n) => {
-        el.setAttribute('aria-label',(names[n] || 'Value')+' '+(index+1));
+        const label=selector==='.purchase-line'?(el.matches('[data-purchase-search]')?'Product':el.matches('[data-qty]')?'Quantity':el.matches('[data-price]')?'Cost per unit':'Selected product'):(names[n]||'Value');el.setAttribute('aria-label',label+' '+(index+1));
       }));
     }
     for (const [id, label] of [['node-location','Transaction location'],['online-location','Transaction location'],['sale-party','Customer for current bill'],['discount','Bill discount in rupees']]) document.getElementById(id)?.setAttribute('aria-label',label);
@@ -90,7 +91,7 @@
     if ($('#product-search')) {
       $('#product-search').setAttribute('aria-label','Search products or scan barcode');
       $('#product-search').setAttribute('aria-keyshortcuts','F3');
-      $('#product-search').title = 'F3 to search; Down to choose a result; Enter to add or scan an exact barcode';
+      $('#product-search').title = 'F3 to search; Down chooses a result; Enter adds; Page Up/Down browses more products';
     }
     const dialog = $('#modal');
     if (dialog) {
@@ -113,11 +114,11 @@
   function go(route) {if (pageAllowed(route)) navTo(route); else toast('Your role does not allow this page.',true);}
   function help() {
     if ($('#modal').open) return;
-    const shortcuts = [['Ctrl+K / ⌘K','Find a page or action'],['Alt+1 … Alt+0','Open business pages'],['Alt+S / Alt+T','Settings / staff'],['F2','Open POS; keep current basket'],['F3','Search products or scan barcode'],['F4','Add or receive on this page'],['F8','Open checkout'],['F9','Invoice history'],['Ctrl+Enter / ⌘Enter','Submit the current form'],['Esc','Close a dialog or navigation'],['Tab / Shift+Tab','Next / previous control'],['Arrow keys','Choose product cards or view tabs'],['Alt+N / Alt+M','Focus navigation / workspace'],['Alt+L','Focus location selector'],['Alt+K','This shortcut guide']];
+    const shortcuts = [['Ctrl+K / ⌘K','Find a page or action'],['Alt+1 … Alt+0','Open business pages'],['Alt+S / Alt+T','Settings / staff'],['F2','Open POS; keep current basket'],['F3','Search this page / scan a purchase item'],['F4','Add or receive on this page'],['F5 / F6 / F7','Bill customer / quantity / discount'],['F8','Open checkout'],['F10','Print the open invoice'],['Enter / Shift+Enter','Next / previous form field'],['Page Up / Page Down','Previous / next results page'],['Alt+C/U/D/B','Checkout: Cash / UPI / Card / Bank'],['Alt+A / Alt+P','Purchase: add item / amount paid'],['F9','Invoice history'],['Ctrl+Enter / ⌘Enter','Submit the current form'],['Esc','Close a dialog or navigation'],['Tab / Shift+Tab','Next / previous control'],['Arrow keys','Choose product cards or view tabs'],['Alt+N / Alt+M','Focus navigation / workspace'],['Alt+L','Focus location selector'],['Alt+K','This shortcut guide']];
     openModal('Keyboard shortcuts','<p>Keyboard access works offline. Saving still uses the normal validation and confirmation screens.</p>'+table(['Shortcut','Action'],shortcuts.map(([key,value])=>'<tr><td><kbd>'+esc(key)+'</kbd></td><td>'+esc(value)+'</td></tr>')),'<button class="btn secondary" onclick="closeModal()">Close</button>');
   }
   function actions() {
-    const result = Object.keys(pages).filter(pageAllowed).map(route => ({title:pages[route],group:'Page',run:()=>go(route)}));
+    const aliases={billing:'pos bill invoice sale barcode checkout',inventory:'stock products sku catalogue warehouse transfers',cafe:'coffee mojito cafe menu ingredients',people:'profiles customer supplier mobile credit ledger',planning:'reorder procurement purchasing stock alerts',reports:'sales expenses payments report',staff:'users permissions accounts',settings:'sync gst tax backup printer'};const result=Object.keys(pages).filter(pageAllowed).map(route=>({title:pages[route],keywords:aliases[route]||'',group:'Page',run:()=>go(route)}));
     function add(title,group,permission,run) {if (canOperate(permission)) result.push({title,group,run});}
     add('Add product','Inventory','product',()=>{go('inventory');productForm();});
     add('Transfer stock','Inventory','transfer',()=>{go('inventory');transferForm();});
@@ -134,7 +135,7 @@
     return result;
   }
   function drawPalette() {
-    const query = $('#command-query').value.toLowerCase(); palette = actions().filter(a=>(a.title+' '+a.group).toLowerCase().includes(query));
+    const query = $('#command-query').value.toLowerCase(); palette = actions().filter(a=>(a.title+' '+a.group+' '+(a.keywords||'')).toLowerCase().includes(query));
     selected = 0;
     $('#command-results').innerHTML = palette.length ? palette.map((a,i)=>'<button type="button" data-command="'+i+'"><strong>'+esc(a.title)+'</strong><small>'+esc(a.group)+'</small></button>').join('') : '<p>No matching actions for your account.</p>';
     $('#command-results').querySelectorAll('button').forEach(button => button.onclick = () => choose(Number(button.dataset.command)));
@@ -149,6 +150,28 @@
     if ($('#modal').open) return;
     openModal('Find a page or action','<label for="command-query">Search the business workspace</label><input id="command-query" placeholder="Try stock, customer, café or purchase…" autocomplete="off" aria-describedby="command-instructions"><p id="command-instructions">Type to filter. Use Up/Down and Enter to choose, or Tab to a result.</p><div id="command-results" class="command-results"></div><p id="command-count" role="status"></p>');
     $('#command-query').oninput = drawPalette; drawPalette();
+  }
+  function focusSearch() {
+    const names={billing:'#product-search',inventory:'#inventory-search',people:'#people-search'};
+    const field=$(names[page]||'#missing-search');
+    if(field){field.focus();field.select();}else commands();
+  }
+  function openPOS() {if(!pageAllowed('billing'))return; if(page!=='billing')go('billing');$('#product-search')?.focus();$('#product-search')?.select();}
+  function focusQuantity(){const id=activeCartId||cart.at(-1)?.id;const field=$('.cart-line[data-product-id="'+id+'"] [data-cart-quantity]');if(field){field.focus();field.select();}else toast('Add a product first.');}
+  function nextField(target,back=false){
+    const form=target.closest('form');if(!form)return;
+    const fields=[...form.querySelectorAll('input:not([type=hidden]):not([type=file]),select,textarea')].filter(el=>available(el)&&!el.readOnly);
+    if(!back&&!target.reportValidity())return;
+    const index=fields.indexOf(target),field=fields[index+(back?-1:1)]||(!back?$('#form-submit')||form.querySelector('[type=submit]'):null);
+    if(field){field.focus();if(field.matches('input:not([type=checkbox]),textarea'))field.select();}
+  }
+  function purchaseSearch(dialog){const current=document.activeElement.closest('.purchase-line');const rows=[...dialog.querySelectorAll('.purchase-line')];const row=current||rows.find(r=>!r.querySelector('select').value)||addPurchaseLine();const field=row?.querySelector('[data-purchase-search]');if(field){field.focus();field.select();}}
+  function highlightPurchase(row){row.querySelectorAll('[data-choice]').forEach((button,i)=>button.setAttribute('aria-selected',String(i===row.purchaseChoice)));const chosen=row.querySelector('[data-choice="'+row.purchaseChoice+'"]');if(chosen){row.querySelector('[data-purchase-search]').setAttribute('aria-activedescendant',chosen.id);chosen.scrollIntoView({block:'nearest'});}}
+  function choosePurchase(row){const input=row.querySelector('[data-purchase-search]');if(!input.value.trim())return toast('Enter a product name or barcode first.');const exact=scanProduct(input.value);if(exact===null){input.setCustomValidity('Code matches more than one product. Correct the catalogue.');input.reportValidity();return;}
+    let p=exact;if(!p&&/^\d{6,}$/.test(input.value.trim())){input.setCustomValidity('Barcode not found. Check the catalogue.');input.reportValidity();return;}
+    if(!p&&row.querySelector('select').value)p=product(row.querySelector('select').value);
+    if(!p){if(!row.purchaseChoices?.length)purchaseChoices(row);p=row.purchaseChoices?.[row.purchaseChoice||0];}
+    if(p&&selectPurchaseProduct(row,p.id)){const field=row.querySelector('[data-qty]');field.focus();field.select();}else{input.setCustomValidity('Choose a stocked product or café ingredient.');input.reportValidity();}
   }
   function primaryAction() {
     const map = {inventory:()=>productForm(),purchases:()=>purchaseForm(),cafe:()=>productForm(null,true),people:()=>partyForm(peopleFilter),reports:()=>expenseForm(),planning:()=>purchaseOrderForm(),notifications:()=>campaignForm(),staff:()=>staffForm()};
@@ -169,7 +192,7 @@
   document.addEventListener('keydown',event => {
     if (event.isComposing || event.ctrlKey && event.altKey || typeof S==='undefined' || !S) return;
     const key = event.key, lower = key.toLowerCase(), dialog = $('#modal'), target = event.target;
-    if (event.repeat && ['Enter','F8'].includes(key)) {event.preventDefault();return;}
+    if (event.repeat && ['Enter','F8','F10'].includes(key)) {event.preventDefault();event.stopImmediatePropagation();return;}
     if (dialog.open) {
       if (key==='Tab') {
         const fields=[...dialog.querySelectorAll('button,a[href],input:not([type=hidden]),select,textarea,[tabindex]')].filter(el=>available(el)&&el.tabIndex>=0);
@@ -180,8 +203,24 @@
         return;
       }
       const busy = $('#form-submit')?.disabled;
-      if (busy && ['Escape','Enter'].includes(key)) {event.preventDefault();toast('Saving. Please wait for the result.');return;}
-      if (key==='Escape') {event.preventDefault();closeModal();return;}
+      if (busy && (['Escape','Enter'].includes(key)||key===' '&&target.matches('button'))) {event.preventDefault();toast('Saving. Please wait for the result.');return;}
+      if (key==='Escape') {event.preventDefault();const row=target.closest('.purchase-line');if(row&&!row.querySelector('[data-purchase-results]').hidden){row.querySelector('[data-purchase-results]').hidden=true;row.querySelector('[data-purchase-search]').setAttribute('aria-expanded','false');return;}closeModal();return;}
+      if(['PageDown','PageUp'].includes(key)&&dialog.querySelector('#invoice-results')){event.preventDefault();moveInvoicePage(key==='PageDown'?1:-1);return;}
+      if (key==='F2'&&dialog.querySelector('.receipt-preview')) {event.preventDefault();closeModal('#product-search');openPOS();return;}
+      if (key==='F10'&&dialog.querySelector('.receipt-preview')) {event.preventDefault();printInvoice(dialog.dataset.invoiceId);return;}
+      if (key==='F3') {event.preventDefault();if(dialog.querySelector('#purchase-lines'))purchaseSearch(dialog);else{const field=dialog.querySelector('#invoice-search,#customer-query,#command-query,input[type=search],#f-barcode');field?.focus();field?.select();}return;}
+      if (key==='F5') {event.preventDefault();return;}
+      if (event.altKey&&!event.ctrlKey&&!event.metaKey) {
+        const payment=dialog.querySelector('#f-payment'),methods={c:'Cash',u:'UPI',d:'Card',b:'Bank'};
+        if(payment&&dialog.querySelector('.report-number')&&methods[lower]){event.preventDefault();payment.value=methods[lower];const paid=dialog.querySelector('#f-paid');paid?.focus();paid?.select();return;}
+        if(lower==='p'&&dialog.querySelector('#f-paid')){event.preventDefault();dialog.querySelector('#f-paid').focus();dialog.querySelector('#f-paid').select();return;}
+        if(lower==='a'&&dialog.querySelector('#purchase-lines')){event.preventDefault();const rows=[...dialog.querySelectorAll('.purchase-line')];const row=rows.find(r=>!r.querySelector('select').value)||addPurchaseLine();row?.querySelector('[data-purchase-search]').focus();return;}
+        if(lower==='c'&&dialog.querySelector('#purchase-lines')){event.preventDefault();const row=target.closest('.purchase-line');const p=row&&product(row.querySelector('select').value);if(p){row.querySelector('[data-qty]').value=p.pack;purchaseTotal();row.querySelector('[data-qty]').focus();row.querySelector('[data-qty]').select();}return;}
+      }
+      if(key==='F8'&&dialog.querySelector('#purchase-lines')){event.preventDefault();dialog.querySelector('#f-paid')?.focus();dialog.querySelector('#f-paid')?.select();return;}
+      if(target.matches('[data-purchase-search]')&&['ArrowDown','ArrowUp','Enter'].includes(key)&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey){event.preventDefault();const row=target.closest('.purchase-line');if(key==='Enter')choosePurchase(row);else{if(row.querySelector('[data-purchase-results]').hidden)purchaseChoices(row);const size=row.purchaseChoices?.length||0;if(size)row.purchaseChoice=(row.purchaseChoice+(key==='ArrowDown'?1:-1)+size)%size;highlightPurchase(row);}return;}
+      if(target.id==='customer-query'&&['ArrowDown','ArrowUp','Enter'].includes(key)){event.preventDefault();if(key==='Enter'){if(customerChoices.length)selectBillCustomer(customerChoices[customerChoice].id);}else if(customerChoices.length){customerChoice=(customerChoice+(key==='ArrowDown'?1:-1)+customerChoices.length)%customerChoices.length;$('#customer-choices').querySelectorAll('button').forEach((b,i)=>b.classList.toggle('selected',i===customerChoice));$('#customer-choices button.selected')?.scrollIntoView({block:'nearest'});}return;}
+      if(key==='Enter'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&target.matches('form input:not([type=file]):not([type=hidden]),form select')){event.preventDefault();if(target.matches('[data-price]')&&!event.shiftKey&&target.reportValidity()&&target.closest('.purchase-line').querySelector('select').value){const row=target.closest('.purchase-line'),next=row.nextElementSibling||addPurchaseLine();next?.querySelector('[data-purchase-search]').focus();}else nextField(target,event.shiftKey);return;}
       if ((event.ctrlKey || event.metaKey) && key==='Enter') {
         const form = dialog.querySelector('form');if (form && !busy) {event.preventDefault();form.requestSubmit();}return;
       }
@@ -202,15 +241,22 @@
       if (lower==='n') {event.preventDefault();$('.sidebar').classList.add('open');sidebar();$('#nav button')?.focus();return;}
       if (lower==='l') {event.preventDefault();($('#node-location') || $('#online-location'))?.focus();return;}
     }
+    if(event.ctrlKey&&target.matches('[data-cart-quantity]')&&['ArrowUp','ArrowDown'].includes(key)){event.preventDefault();const rows=[...document.querySelectorAll('[data-cart-quantity]')],index=rows.indexOf(target),field=rows[Math.max(0,Math.min(rows.length-1,index+(key==='ArrowDown'?1:-1)))];field?.focus();field?.select();return;}
     if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey && key.startsWith('F')) return;
-    const shortcuts = {F1:help,F2:()=>go('billing'),F3:()=>{go('billing');$('#product-search')?.focus();},F4:primaryAction,F8:()=>{if(page==='billing'&&canOperate('sale'))checkout();},F9:()=>{if(pageAllowed('billing'))invoiceList();}};
+    const shortcuts = {F1:help,F2:openPOS,F3:focusSearch,F4:primaryAction,F5:()=>{if(page==='billing')billCustomerForm();},F6:()=>{if(page==='billing')focusQuantity();},F7:()=>{if(page==='billing'){$('#discount').focus();$('#discount').select();}},F8:()=>{if(page==='billing'&&canOperate('sale'))checkout();},F9:()=>{if(pageAllowed('billing'))invoiceList(page==='purchases'?'purchase':'sale');}};
     if (shortcuts[key]) {event.preventDefault();if(!event.repeat)shortcuts[key]();return;}
+    if(key==='Enter'&&target.matches('[data-cart-quantity]')){event.preventDefault();if(target.reportValidity()&&changeQty(Number(target.closest('.cart-line').dataset.productId),target.value))$('#product-search').focus();return;}
+    if(key==='Enter'&&target.id==='customer-mobile'){event.preventDefault();findCustomerMobile();return;}
+    if(key==='Enter'&&target.id==='discount'){event.preventDefault();$('#product-search').focus();return;}
+    if(['PageDown','PageUp'].includes(key)&&['billing','inventory','people'].includes(page)){event.preventDefault();const direction=key==='PageDown'?1:-1;if(page==='billing')moveProductPage(direction);if(page==='inventory')moveInventoryPage(direction);if(page==='people')movePeoplePage(direction);return;}
     if (key==='Escape' && $('.sidebar')?.classList.contains('open') && innerWidth<=850) {event.preventDefault();$('.sidebar').classList.remove('open');sidebar();$('#mobile-menu')?.focus();return;}
-    if (target.id==='product-search' && key==='ArrowDown') {const first=$('#product-results .product-card');if(first){event.preventDefault();first.focus();}return;}
+    if (target.id==='product-search' && key==='ArrowDown') {refreshProducts();const first=$('#product-results .product-card');if(first){event.preventDefault();first.focus();}return;}
     if (target.id==='product-search' && key==='Enter') {
-      const exact=S.products.some(p=>(p.sku===target.value.trim()||p.barcode===target.value.trim())&&p.kind!=='ingredient');
-      if (!exact) {const cards=[...document.querySelectorAll('#product-results .product-card')];if(cards.length){event.preventDefault();event.stopImmediatePropagation();if(cards.length===1)cards[0].click();else cards[0].focus();}}return;
+      const exact=scanProduct(target.value);if(exact===null){event.preventDefault();event.stopImmediatePropagation();toast('Code matches multiple products. Correct the catalogue.',true);return;}if(!exact&&/^\d{6,}$/.test(target.value.trim())){event.preventDefault();event.stopImmediatePropagation();toast('Barcode not found. Add the barcode in Inventory.',true);return;}
+      if (!exact) {refreshProducts();const cards=[...document.querySelectorAll('#product-results .product-card')];if(cards.length){event.preventDefault();event.stopImmediatePropagation();if(cards.length===1)cards[0].click();else cards[0].focus();}}return;
     }
+    if(target.matches('#inventory-search,#people-search')&&['ArrowDown','Enter'].includes(key)){event.preventDefault();const host=page==='inventory'?$('#inventory-results'):$('#people-results');host?.querySelector('tbody button')?.focus();return;}
+    if(target.matches('tbody button')&&['ArrowUp','ArrowDown','Home','End'].includes(key)){const row=target.closest('tr'),rows=[...row.parentElement.querySelectorAll('tr')],index=rows.indexOf(row),column=[...row.querySelectorAll('button')].indexOf(target),next=key==='Home'?0:key==='End'?rows.length-1:Math.max(0,Math.min(rows.length-1,index+(key==='ArrowDown'?1:-1)));event.preventDefault();const buttons=rows[next].querySelectorAll('button');(buttons[column]||buttons[0])?.focus();return;}
     if (target.matches('.product-card') && ['ArrowRight','ArrowLeft','ArrowUp','ArrowDown','Home','End'].includes(key)) {grid(event,target);return;}
     if (target.matches('.tabs button') && ['ArrowRight','ArrowLeft','Home','End'].includes(key)) {
       const buttons=[...target.parentElement.querySelectorAll('button')],index=buttons.indexOf(target);
@@ -222,9 +268,10 @@
     const baseRender=render;render=function(...args){const saved=remember();const result=baseRender(...args);enhance();if(!navigating&&!$('#modal').open)restore(saved,true);return result;};
     const baseNav=navTo;navTo=function(name){if(!pageAllowed(name))return baseNav(name);dialogVersion++;navigating=true;try{baseNav(name);enhance();focusMain();}finally{navigating=false;}};
     const baseOpen=openModal;openModal=function(...args){if(!$('#modal').open)opener=remember();const version=++dialogVersion;baseOpen(...args);enhance();requestAnimationFrame(()=>{const dialog=$('#modal');if(!dialog.open||version!==dialogVersion)return;const field=dialog.querySelector('form input:not([type=hidden]):not([type=checkbox]),form select,form textarea,#command-query,input[type=search],#invoice-search');(available(field)?field:dialog.querySelector('h2'))?.focus({preventScroll:true});});};
-    const baseClose=closeModal;closeModal=function(){const saved=opener;opener=null;const version=++dialogVersion;baseClose();queueMicrotask(()=>{if(version===dialogVersion&&!$('#modal').open&&!restore(saved))focusMain();});};
-    $('#modal').addEventListener('cancel',event=>{event.preventDefault();closeModal();});
-    document.addEventListener('click',event=>{if(event.target.closest('#mobile-menu,#nav-backdrop'))schedule();});
+    const baseClose=closeModal;closeModal=function(destination){const saved=destination?remember($(destination)):$('#modal .receipt-preview')&&page==='billing'?remember($('#product-search')):opener;opener=null;const version=++dialogVersion;baseClose();queueMicrotask(()=>{if(version===dialogVersion&&!$('#modal').open&&!restore(saved))focusMain();});};
+    $('#modal').addEventListener('cancel',event=>{event.preventDefault();if(!$('#form-submit')?.disabled)closeModal();});
+    document.addEventListener('focusin',event=>{const row=event.target.closest('.cart-line');if(row)activeCartId=Number(row.dataset.productId);});
+    document.addEventListener('click',event=>{if($('#form-submit')?.disabled&&event.target.closest('button[onclick="closeModal()"]')){event.preventDefault();event.stopImmediatePropagation();return;}if(event.target.closest('#mobile-menu,#nav-backdrop'))schedule();},true);
     new MutationObserver(schedule).observe(document.body,{subtree:true,childList:true});
     addEventListener('resize',sidebar);enhance();
   }

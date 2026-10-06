@@ -22,6 +22,7 @@ def main():
     page.goto(origin);page.locator('[name=username]').fill('owner');page.locator('[name=password]').fill('owner-test-password');page.get_by_role('button',name='Create owner account').click();page.wait_for_function('!!S')
     page.get_by_role('button',name='Café menu',exact=True).click();page.get_by_role('button',name='Open café POS',exact=True).click();page.wait_for_function("category==='Café menu'&&localLocation()==='Outlet'")
     cards=page.locator('.product-card');assert cards.count()==1;cards.first.click();cards.first.click();page.get_by_role('button',name='Checkout & save bill').click();page.locator('#f-payment').select_option('UPI');page.get_by_role('button',name='Save invoice',exact=True).click();page.wait_for_function('S.documents.length===1')
+    page.wait_for_function("!!document.querySelector('#modal .receipt-preview')");page.keyboard.press('F2');page.wait_for_function("document.activeElement.id==='product-search'&&!document.querySelector('#modal').open");assert page.evaluate("category==='Café menu'&&localLocation()==='Outlet'&&cart.length===0")
     state=shop.state();bill=state['documents'][0];assert bill['total']==16000 and bill['location']=='Outlet' and bill['party_id'] is None
     quantities={r['location']:r['quantity'] for r in state['stocks'] if r['product_id']==milk};assert quantities=={'Warehouse':200,'Outlet':0};assert not errors,errors;browser.close()
    print('Café POS passed: owner switches to Outlet, café-only filter, two coffees, walk-in UPI invoice and exact recipe consumption; no JS errors.')
