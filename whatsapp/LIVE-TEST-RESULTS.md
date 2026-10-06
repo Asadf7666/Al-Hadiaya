@@ -56,3 +56,9 @@ A fresh valid access token must be entered directly in **WhatsApp updates → Co
 After the owner supplied a refreshed credential, Meta accepted all five isolated 0.8 test messages: Purchase, Sale, Profile, Procurement and Daily summary / stock planning. **The owner confirmed all five were received**, then reported that the formatting was difficult to read. This confirms delivery for those session-message tests only. All six branded templates still returned PENDING; no linked Commerce catalogue or saved webhook secret was found. The daily summary remains configured for 20:00 Asia/Kolkata (17:30 Asia/Riyadh).
 
 Version 0.8.1 changes presentation to bold WhatsApp headings, paragraph-separated sections, short item/quantity lines, rupee amounts, distinct payment/account details and stock before/after balances. Daily detail pages are bounded to 2,200 characters. These layout changes preserve the underlying financial and inventory calculations.
+
+### Revised 0.8.1 examples
+
+Meta accepted six new session-message examples after the layout update: Purchase, Sale, Profile, Procurement, Daily summary / stock planning, and a separate Stock alert. Each message uses an isolated financial fixture and a clear demo label. Receipt/readability of this revised set was not yet confirmed when this report was written. The preceding five-message set was confirmed received by the owner.
+
+The 0.8.1 hosted app passed browser checks without JavaScript errors; all 89 automated tests passed. The hosted installer and source download SHA-256 hashes were verified. Windows installer execution remains unverified. No native Commerce ordering, webhook receipt or outside-window template delivery was confirmed by these tests.
