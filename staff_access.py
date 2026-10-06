@@ -96,7 +96,7 @@ class StaffAccess:
         if role=='viewer':raise PermissionError('This account is read-only.')
         if role=='cashier' and action not in CASHIER:raise PermissionError('Cashier permission does not allow this operation.')
         if role=='manager' and action not in MANAGER:raise PermissionError('Owner permission is required.')
-        if not self.local and action in ('sync','shutdown','cloud_pair','cloud_address','cloud_disconnect'):
+        if not self.local and action in ('sync','shutdown','cloud_pair','cloud_address','cloud_disconnect','cloud_retire'):
             raise ValueError('This local-device operation is unavailable in the hosted review.')
         if not self.local and action=='settings':data={k:v for k,v in data.items() if k in SETTINGS}
         if role in ('manager','cashier'):

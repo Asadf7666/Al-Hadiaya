@@ -12,6 +12,32 @@ class V1Tests(unittest.TestCase):
   self.access.user({'username':'owner','password':'owner-test-password','role':'owner'})
   self.pid=self.shop.act('product',dict(name='Cola',sku='COLA',category='Cold drinks',unit='bottle',kind='stock',price=50,cost=20,stock=100,location='Warehouse'))['id']
  def tearDown(self):self.tmp.cleanup()
+ def test_retired_server_keeps_unsent_business_records_and_identity(self):
+  from cloud_sync import DDL
+  before=self.shop.state();self.shop.act('sale',{'location':'Warehouse','items':[{'product_id':self.pid,'quantity':2}]})
+  with self.shop.connect() as db:
+   db.executescript(DDL)
+   for key,value in {'cloud_url':'https://retired.example.test','cloud_business_id':'retained-business','cloud_cursor':17,'whatsapp_enabled':True}.items():
+    db.execute('INSERT OR REPLACE INTO settings VALUES(?,?)',(key,json.dumps(value)))
+   pending=db.execute('SELECT COUNT(*) FROM sync_events').fetchone()[0]
+  with patch('cloud_sync.request',side_effect=AssertionError('Retirement must work without a server.')):
+   result=self.access.act({'id':1,'role':'owner'},'cloud_retire',{'confirm':'RETIRED'})
+  after=self.shop.state();self.assertEqual(result['pending'],pending)
+  self.assertEqual(after['settings']['device_id'],before['settings']['device_id']);self.assertEqual(after['settings']['cloud_business_id'],'retained-business')
+  self.assertEqual(after['settings']['cloud_cursor'],17);self.assertFalse(after['settings']['cloud_url']);self.assertFalse(after['settings']['whatsapp_enabled'])
+  self.assertEqual(len(after['documents']),1);self.assertEqual(after['products'][0]['stock'],98)
+  with self.shop.connect() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM sync_events').fetchone()[0],pending)
+  self.assertTrue(list((self.shop.folder/'backups').glob('*.sqlite3')))
+ def test_retired_server_requires_confirmation_owner_and_successful_backup(self):
+  self.shop.act('settings',{'name':'Before retirement'})
+  with self.shop.connect() as db:db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps('https://retired.example.test'),'cloud_url'))
+  with self.assertRaises(PermissionError):self.access.act({'id':2,'role':'manager'},'cloud_retire',{'confirm':'RETIRED'})
+  with self.assertRaises(ValueError):self.shop.act('cloud_retire',{'confirm':'DISCONNECT'})
+  with patch.object(self.shop,'backup',side_effect=OSError('Disk full')):
+   with self.assertRaises(OSError):self.shop.act('cloud_retire',{'confirm':'RETIRED'})
+  self.assertTrue(self.shop.state()['settings']['cloud_url'])
+  hosted=StaffAccess(self.tmp.name,'https://example.test',False,local=False,shop=self.shop)
+  with self.assertRaises(ValueError):hosted.act({'id':1,'role':'owner'},'cloud_retire',{'confirm':'RETIRED'})
  def test_retried_bill_is_atomic_and_reusing_key_with_different_data_fails(self):
   data={'location':'Warehouse','items':[{'product_id':self.pid,'quantity':2}],'_request_id':'a'*32,'_request_actor':'1:owner'}
   first=self.shop.act('sale',data);second=self.shop.act('sale',data)

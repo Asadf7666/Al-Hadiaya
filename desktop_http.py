@@ -5,7 +5,7 @@ from urllib.parse import parse_qs,urlparse
 from app import Handler as Base,ROOT,TOKEN
 from staff_access import StaffAccess
 
-LOGIN='''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><body class="auth-screen"><main class="card auth-card"><div class="eyebrow">AL HADIYA TRADERS</div><h1>{title}</h1><p>{intro}</p><form method="post" action="{action}"><label>Username</label><input name="username" autocomplete="username" required><label>Password</label><input type="password" name="password" autocomplete="{autocomplete}" minlength="12" required><button class="btn gold" type="submit">{button}</button></form><p class="error">{error}</p><small>Your business records stay on this PC. Sign-in works offline.</small></main></body></html>'''
+LOGIN='''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><body class="auth-screen"><main class="card auth-card"><div class="eyebrow">AL HADIYA TRADERS</div><h1>{title}</h1><p>{intro}</p><form method="post" action="{action}"><label for="login-username">Username</label><input id="login-username" autofocus name="username" autocomplete="username" required><label for="login-password">Password</label><input id="login-password" type="password" name="password" autocomplete="{autocomplete}" minlength="12" required><button class="btn gold" type="submit">{button}</button></form><p class="error">{error}</p><small>Your business records stay on this PC. Sign-in works offline.</small></main></body></html>'''
 class DesktopHandler(Base):
  @property
  def access(self):return self.server.access

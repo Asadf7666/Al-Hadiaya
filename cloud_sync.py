@@ -315,3 +315,22 @@ def disconnect(shop,data):
             db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(''),'cloud_url'))
             shop.audit(db,'server_disconnected',{'safety_backup':safety['paths'][0]})
     return {'message':'Final server exchange and backup completed. Billing remains offline. Configure the same shared folder on every reconciled node to continue exchange without a server.'}
+
+
+def retire(shop,data):
+    """Keep unsent records and recovery identity when the hub is permanently gone."""
+    if data.get('confirm')!='RETIRED':raise ValueError('Type RETIRED only when the server has been permanently removed.')
+    with shop.cloud_lock,shop.lock:
+        with shop.connect() as db:
+            db.executescript(DDL)
+            if not shop.settings(db).get('cloud_url'):raise ValueError('This PC is not connected to a server.')
+            pending=db.execute('SELECT COUNT(*) FROM sync_events WHERE id NOT IN (SELECT event_id FROM cloud_sent)').fetchone()[0]
+            waiting=db.execute('SELECT COUNT(*) FROM cloud_inbox').fetchone()[0]
+        safety=shop.backup(local_only=True)
+        with shop.connect() as db:
+            db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(''),'cloud_url'))
+            # Folder sync and messaging stay off until the owner reconciles every node.
+            db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(''),'sync_folder'))
+            db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(False),'whatsapp_enabled'))
+            shop.audit(db,'server_retired',{'safety_backup':safety['paths'][0],'pending':pending,'waiting':waiting})
+    return {'pending':pending,'waiting':waiting,'message':f'Server connection removed after a local backup. {pending} unsent changes and {waiting} incoming changes are preserved. Reconcile all PCs and the saved server backup before setting up folder exchange.'}

@@ -1,6 +1,6 @@
 # v1 handover and pause
 
-Validated Windows installer: [AlHidayaTraders-Setup-1.0.1.exe](https://github.com/Asadf7666/Al-Hadiaya/releases/download/v1.0.1/AlHidayaTraders-Setup-1.0.1.exe). [Release and checksum](https://github.com/Asadf7666/Al-Hadiaya/releases/tag/v1.0.1). The GitHub download remains available while the review VM is stopped. Windows installer/update checks passed; validate actual shop hardware before trading.
+Validated Windows installer: [AlHidayaTraders-Setup-1.1.0.exe](https://github.com/Asadf7666/Al-Hadiaya/releases/download/v1.1.0/AlHidayaTraders-Setup-1.1.0.exe). [Release and checksum](https://github.com/Asadf7666/Al-Hadiaya/releases/tag/v1.1.0). The GitHub download remains available after the review VM was deleted. Windows installer/update checks passed; validate actual shop hardware before trading.
 
 Café POS sells menu items such as coffee and mojitos. Ingredients per serving are internal stock instructions, not a product sold to the customer. A customer sees the drink name, quantity and price on their bill. Packaged items use their normal stock quantities.
 
@@ -18,17 +18,19 @@ GitHub retains source; the Windows workflow publishes a versioned installer afte
 
 Keep sending off during review. Reset the App Secret shared in chat and revoke exposed access tokens; save replacements directly in protected application fields. Confirm account restoration, sender permissions/quality, support/privacy details, approved branded templates, signed messages webhook and linked owned Commerce catalogue. Perform a small, bounded opted-in cart/delivery/STOP check before broader activation. Do not bypass restrictions. Use one active sender for the business.
 
-## Pause for one or two weeks
+## Review server permanently removed
 
-Save the installer and a private database/photo backup. Stop the review VM after handover to stop compute charges, retaining its encrypted disk/data. Retained storage still incurs charges. No automatic expiry/deletion is scheduled. Do not use permanent Disconnect for a temporary shutdown: Windows can bill offline and sync when the server returns.
+The owner requested server removal on 6 October 2026. The saved private business/photo ZIP passed archive and SQLite integrity checks before termination. It contains 15 products, 7 invoices, 10 customer/supplier profiles and one uploaded image from the review environment. Newer records held only on a Windows PC are still on that PC; removal does not merge them.
 
-The temporary public IP/HTTPS name may change after restart. Verify the new address and use Update server address to retain pairing and pending changes. Reconcile before competing stock work. A stopped server cannot host the website or deliver its notifications.
+The review VM, root disk and network interface are gone. Its dedicated security group and temporary IAM instance profile/role were removed and verified absent. Shared VPC/subnet resources were retained. No scheduled automatic expiry remains. The former review address, website, online sync and WhatsApp webhook are unavailable.
 
-## Permanent server removal after “all approved”
+Keep the verified installer, private backup and source. Windows works offline. For each PC still pointing at the deleted server, upgrade in place, then use Settings → Server permanently removed? and type RETIRED. This owner-only operation makes a local backup and preserves all business records, unsent/incoming events and recovery identity before removing the old address. It pauses WhatsApp and does not claim a completed final exchange. A failed backup leaves the connection unchanged.
 
-Pause new transactions across all nodes, resolve conflicts and exchange every pending change. Download private verified database/photo backups and retain secure hub/peer recovery material if rebuilding the same hub later. Save the installer, source and required images separately; never make backups public release assets.
+Reconcile records on every PC with the saved server backup before enabling a shared available-offline folder. Do not independently reload opening stock or join with disposable-sample replacement when real trading records exist. Folder scans alone do not prove transport delivery. Unresolved financial conflicts need assisted reconciliation. A future hosted deployment needs its own HTTPS, backup, access and webhook configuration.
 
-Use desktop Finish sync & disconnect server only after that final reconciliation. It checks a final exchange and creates a backup. Configure the same available-offline shared folder on existing reconciled nodes. A new node needs the same verified baseline with a fresh device identity. Every node keeps full business functions. Terminate only the identified review resources after the owner's explicit approval; do not delete shared AWS resources.
+## Keyboard access
+
+Ctrl+K finds pages/actions, Alt+K opens help, F2 opens POS, F3 searches/scans, F8 checks out and Ctrl+Enter saves a validated form. Tab/Shift+Tab, product/filter arrows, visible focus and dialog focus restoration work across the desktop and hosted workspace. See [complete guide](KEYBOARD.md). GitHub publishes the installer only after keyboard-only browser acceptance and actual Windows installation/update checks pass.
 
 ## Recovery, privacy and updates
 

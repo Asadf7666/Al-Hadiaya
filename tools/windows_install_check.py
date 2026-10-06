@@ -25,7 +25,11 @@ def main():
   req=urllib.request.Request(origin+'/api/'+action,data=json.dumps(body).encode(),headers={'Origin':origin,'Content-Type':'application/json','X-Shop-Token':token,'X-Request-ID':key})
   with client.open(req,timeout=20) as response:return json.load(response)
  try:
-  token=sign_in('/setup');pid=act('product',{'name':'CI Drink','sku':'CI-DRINK','category':'Cold drinks','kind':'stock','unit':'bottle','price':50,'cost':20,'stock':5,'location':'Warehouse'})['id']
+  token=sign_in('/setup')
+  with client.open(origin+'/keyboard.js',timeout=10) as response:
+   assert b'Find a page or action' in response.read(), 'Installed keyboard module missing.'
+  with client.open(origin+'/',timeout=10) as response:assert b'/keyboard.js' in response.read()
+  pid=act('product',{'name':'CI Drink','sku':'CI-DRINK','category':'Cold drinks','kind':'stock','unit':'bottle','price':50,'cost':20,'stock':5,'location':'Warehouse'})['id']
   sale={'location':'Warehouse','items':[{'product_id':pid,'quantity':1}]};assert act('sale',sale,'a'*32)==act('sale',sale,'a'*32)
   installer();process.wait(timeout=30);process=start();token=sign_in('/login')
   with client.open(origin+'/api/state') as response:state=json.load(response)

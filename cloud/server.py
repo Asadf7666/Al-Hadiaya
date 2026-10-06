@@ -21,7 +21,7 @@ from staff_access import StaffAccess,password_hash
 class Online(StaffAccess):
     pass
 
-LOGIN='''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Al Hadiya · Staff sign in</title><link rel="stylesheet" href="/style.css"><body style="display:grid;place-items:center;min-height:100vh;background:#f6f6ef"><main class="card" style="max-width:430px;padding:36px;margin:20px"><div class="eyebrow">AL HADIYA TRADERS</div><h1>Welcome back.</h1><p>Sign in to your business workspace.</p><form method="post" action="/login"><label>Username</label><input name="username" autocomplete="username" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><button class="btn gold" style="margin-top:24px;width:100%">Sign in</button></form><p style="color:#ac3333">{error}</p><small>Temporary review · use test data only.</small><p><a href="/">← Visit our website</a></p></main></body></html>'''
+LOGIN='''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Al Hadiya · Staff sign in</title><link rel="stylesheet" href="/style.css"><body style="display:grid;place-items:center;min-height:100vh;background:#f6f6ef"><main class="card" style="max-width:430px;padding:36px;margin:20px"><div class="eyebrow">AL HADIYA TRADERS</div><h1>Welcome back.</h1><p>Sign in to your business workspace.</p><form method="post" action="/login"><label for="login-username">Username</label><input id="login-username" autofocus name="username" autocomplete="username" required><label for="login-password">Password</label><input id="login-password" type="password" name="password" autocomplete="current-password" required><button class="btn gold" style="margin-top:24px;width:100%">Sign in</button></form><p style="color:#ac3333">{error}</p><small>Temporary review · use test data only.</small><p><a href="/">← Visit our website</a></p></main></body></html>'''
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     @property
@@ -60,7 +60,8 @@ class Handler(BaseHTTPRequestHandler):
             from outreach import challenge
             try:return self.send(200,challenge(self.online.shop,parse_qs(urlparse(self.path).query)),'text/plain')
             except PermissionError:return self.send(403,{'error':'Webhook verification failed.'})
-        downloads={'/downloads/AlHidayaTraders-Setup-1.0.1.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-1.0.1.zip':'application/zip'}
+        version=(ROOT/'VERSION').read_text().strip()
+        downloads={f'/downloads/AlHidayaTraders-Setup-{version}.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain',f'/downloads/AlHidayaTraders-source-{version}.zip':'application/zip'}
         if path in downloads:
             file=ROOT/'dist'/Path(path).name
             if not file.is_file():return self.send(404,{'error':'Download is being prepared.'})
@@ -93,7 +94,7 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/app':
             markup=(ROOT/'static/index.html').read_text(encoding='utf-8').replace('Offline billing ready','Online review').replace('Your data stays on this PC','Shared test workspace').replace('↻ Sync transactions','Account & staff').replace('onclick="runSync()"','onclick="navTo(\'staff\')"').replace('Local SQLite storage','Temporary review server').replace('<script src="/app.js"></script>','<script src="/app.js"></script><script src="/cloud-ui.js"></script>')
             return self.send(200,markup,'text/html; charset=utf-8')
-        files={'/app.js':ROOT/'static/app.js','/cloud-ui.js':ROOT/'cloud/ui.js'}
+        files={'/app.js':ROOT/'static/app.js','/keyboard.js':ROOT/'static/keyboard.js','/cloud-ui.js':ROOT/'cloud/ui.js'}
         if path in files:return self.send(200,files[path].read_bytes(),'text/javascript')
         self.send(404,{'error':'Not found'})
     def do_POST(self):

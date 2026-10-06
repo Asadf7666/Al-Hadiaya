@@ -1,15 +1,25 @@
-# Al Hadiya Traders — Business Manager 1.0.1
+# Al Hadiya Traders — Business Manager 1.1.0
 
 An owned Windows and web shop manager for an Indian trading warehouse/retail counter and a takeaway café. Every paired PC has all business functions. Warehouse and Outlet identify transaction locations, not device permissions or separate applications. Internet is not needed for local Windows operations. The browser website requires a connection to its server.
 
 ## Install or update Windows
 
-1. Run `AlHidayaTraders-Setup-1.0.1.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
+1. Run `AlHidayaTraders-Setup-1.1.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
 2. Open the app from its desktop or Start Menu shortcut. The launcher serves the interface at `127.0.0.1:8765` and must remain open.
 3. Choose the default transaction location in the header or Settings. Every node can work with both locations, receive purchases, record payments, manage stock and products, define recipes, issue credit bills and change business/GST details.
 4. Confirm real prices, stock, pack quantities, barcodes and tax classifications before live trading. Karnataka defaults to state code 29. The installer is unsigned. Physical printer/scanner acceptance is required; the Windows release workflow executes installation/update checks before publishing a download.
 
-## Connect a node to the online business
+## Keyboard access
+
+Use Tab and Shift+Tab for all controls, Ctrl+K to find any permitted page/action, and Alt+K for the shortcut guide. F2 opens POS, F3 focuses barcode/product search, F8 opens checkout and Ctrl+Enter saves a validated form. Product cards and view tabs support arrow keys. Forms start on the first editable field, stay within the dialog, and return focus when closed. On Mac, Command+K and Command+Enter are also supported. See [all shortcuts](docs/KEYBOARD.md).
+
+## Review server removed
+
+At the owner's request on 6 October 2026, the temporary AWS VM and its dedicated disk/network/access resources were deleted after the private business/photo backup was verified. The previous review website, online sync and webhook address are unavailable. The Windows app and GitHub downloads remain available offline.
+
+Upgrade in place. If this PC still points at the retired server, open Settings → Server permanently removed?, read the recovery notice and type RETIRED. This backs up locally, clears the server address, pauses WhatsApp and preserves records, device/recovery identity and pending events. It does not perform a final exchange. Reconcile every PC with the saved server backup before configuring shared-folder exchange; do not independently recreate opening stock on multiple PCs. See [handover](docs/HANDOVER.md).
+
+## Connect a node to a future online business
 
 1. As owner in the online app, open Account & staff → Connect a Windows PC. Choose its default location and generate a one-time code. The code expires after ten minutes and binds to one identity; it does not assign a restricted device role or stock quota.
 2. On an empty Windows app or one containing only disposable samples, open Settings → Connect to online business. Enter the server HTTPS origin, code and a PC name. The app backs up existing local records, then adopts the server's shared records. This join flow does not merge real historical databases.
@@ -141,7 +151,7 @@ Internal notifications now itemise invoice products, quantities, price/tax/payme
 
 Stock alerts cover location-specific low stock, stockouts, lead-time reorder needs, and recorded SKU expiry within seven days. Each condition sends once per active episode; replenishment clears it and a later recurrence can alert again. Alerts remain visible in the workspace and daily summary. Expiry is per SKU: use separate SKUs for separate batches. One configured online sender should handle WhatsApp delivery; other nodes sync business events. Delivery still requires the authenticated Meta service window or an approved template, sender availability and recipient opt-in.
 
-Upgrade every Windows PC to 1.0.1 before syncing with the updated server (protocol 5 / file-sync format 3). Existing databases, pairing and customer records are preserved by the update. Check the Windows release workflow result and validate actual shop hardware before trading.
+Upgrade every Windows PC to 1.1.0 before syncing with the updated server (protocol 5 / file-sync format 3). Existing databases, pairing and customer records are preserved by the update. Check the Windows release workflow result and validate actual shop hardware before trading.
 
 
 ## v1 access, reliability and policy upgrade
@@ -156,6 +166,6 @@ Finish sync & disconnect server is for permanent retirement after all nodes stop
 
 WhatsApp sends require an approved account, acceptable sender quality, supported/fresh approved templates for their purpose, consent and genuine service windows. New consent/changed mobiles require evidence notes. Restrictions/expired credentials pause sending. Batches and recipients are paced; promotional offers have a one-per-recipient/day app cap. Human-support commands route to the shop. Catalogue publication needs an owner review and is invalidated by changed product details. Regulated goods are excluded from this shop catalogue.
 
-As of 6 October 2026 the business account review is pending and hosted sending is off. Live production validation is blocked until account restoration, credential rotation, approved branded templates, signed webhook subscription, owned catalogue linking and a genuine cart/delivery/STOP check. Read [policy mapping](docs/WHATSAPP-POLICY.md), [handover](docs/HANDOVER.md) and [release notes](RELEASE-NOTES.md). Guardrails reduce risk; they do not guarantee that Meta will never restrict an account.
+As of 6 October 2026 the business account review is pending and hosted sending is off. Live production validation is blocked until account restoration, credential rotation, approved branded templates, signed webhook subscription, owned catalogue linking and a genuine cart/delivery/STOP check. The review server has since been deleted at the owner’s request. Read [policy mapping](docs/WHATSAPP-POLICY.md), [handover](docs/HANDOVER.md) and [release notes](RELEASE-NOTES.md). Guardrails reduce risk; they do not guarantee that Meta will never restrict an account.
 
 Periodic snapshot retention keeps the latest eight plus one per latest seven recorded days. Manual/update/recovery snapshots remain until the owner archives them. Photos are included; keep an external copy and monitor storage.

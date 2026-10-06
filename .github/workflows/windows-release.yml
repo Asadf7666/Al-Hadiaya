@@ -16,6 +16,13 @@ jobs:
           python-version: '3.14'
       - name: Verify business and policy controls
         run: python -m unittest discover -s tests -q
+      - name: Verify keyboard syntax and keyboard-only desktop/web workflows
+        run: |
+          node --check static/keyboard.js
+          python -m pip install playwright==1.62.0
+          python -m playwright install chromium
+          python tools/browser_keyboard_check.py
+          python tools/browser_cafe_check.py
       - name: Install NSIS
         run: choco install nsis --yes --no-progress
       - name: Build verified embedded runtime installer

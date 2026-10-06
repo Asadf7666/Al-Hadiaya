@@ -206,6 +206,7 @@ class Shop:
         db.execute('INSERT INTO movements(date,product_id,quantity,reference,note,location) VALUES(?,?,?,?,?,?)',(now(),pid,qty,ref,note,location))
 
     def act(self, action, data):
+        if action=='cloud_retire':return __import__('cloud_sync').retire(self,data)
         if action=='cloud_disconnect':return __import__('cloud_sync').disconnect(self,data)
         if action == 'cloud_address':
             from cloud_sync import change_server
@@ -1058,7 +1059,7 @@ class Handler(BaseHTTPRequestHandler):
                 with sqlite3.connect(target, factory=ClosingConnection) as destination:
                     source.backup(destination)
                 return self.send(200,target.read_bytes(),'application/vnd.sqlite3')
-        files = {'/':'index.html','/app.js':'app.js','/style.css':'style.css'}
+        files = {'/':'index.html','/app.js':'app.js','/keyboard.js':'keyboard.js','/style.css':'style.css'}
         if path not in files:
             return self.send(404,{'error':'Not found'})
         f = ROOT/'static'/files[path]
