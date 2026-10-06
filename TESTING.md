@@ -44,4 +44,7 @@ Actual hosted 0.4.0 browser validation passed against AWS HTTPS: a node labelled
 - Existing inventory, invoice, permission, sync and notification tests remain passing.
 - NSIS compiled the 0.5.0 installer with the pinned Python 3.14.8 embedded runtime. The 0.5.0 installer has not been executed on Windows 10/11.
 - Live Meta testing: one explicitly authorized hello_world message was accepted, and the owner confirmed receipt. Four template creation requests returned PENDING; no approval is assumed.
-- Hosted deployment and real signed webhook delivery remain pending AWS reauthentication and Meta callback setup.
+- Hosted deployment completed on 6 October 2026 after a database backup. The hosted WhatsApp UI, masked credential inputs, public policy pages, and full installer/source download checksums passed. Live signed delivery webhooks and STOP replies remain pending app-secret/verification-token configuration and Meta callback subscription.
+- Twelve app-generated receipt/internal-alert cases were attempted live; custom-template sends were rejected with Meta error 132001 while the four business templates were PENDING. No successful delivery of those custom templates is claimed. Approved Meta sample-format results are recorded in whatsapp/LIVE-TEST-RESULTS.md.
+
+- Expanded live provider tests: all 16 approved Meta sample messages returned message IDs (4 format checks and 12 TEST ONLY business-case parameter checks). Delivery/read is not inferred from API acceptance. The catalogue-message attempt returned error 131009; the owned-catalogue listing requires business_management permission. Media sample tests do not establish media campaign support in the app UI.
