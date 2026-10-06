@@ -1,6 +1,6 @@
 # v1 handover and pause
 
-Validated Windows installer: [AlHidayaTraders-Setup-1.1.0.exe](https://github.com/Asadf7666/Al-Hadiaya/releases/download/v1.1.0/AlHidayaTraders-Setup-1.1.0.exe). [Release and checksum](https://github.com/Asadf7666/Al-Hadiaya/releases/tag/v1.1.0). SHA-256: `1b661648f62bda8eb23380762e148f20a3ace443f390516665100b97de314188`. [Windows checks](https://github.com/Asadf7666/Al-Hadiaya/actions/runs/37487290125) passed: 109 unit tests, keyboard-only desktop/hosted workflows with delayed responses, and actual installation/update/data retention. The installer remains available after the review VM's deletion. Publication initially received HTTP 403 and then succeeded on the final verified build. Workflow artifacts are a fallback if future publication is unavailable. Keep a local copy and validate actual shop hardware before trading.
+Validated Windows installer: [AlHidayaTraders-Setup-1.2.1.exe](https://github.com/Asadf7666/Al-Hadiaya/releases/download/v1.2.1/AlHidayaTraders-Setup-1.2.1.exe). [Release and checksum](https://github.com/Asadf7666/Al-Hadiaya/releases/tag/v1.2.1). SHA-256: `2295a3e47dc47ebf8cb361871360e7a14c9cf730f78fd6388467961a1b98997f`. [Windows checks](https://github.com/Asadf7666/Al-Hadiaya/actions/runs/37513878464) passed for source commit `253d35d58d03cd48a08f2077bb22da9f606ad70f`: 109 business/policy tests, keyboard-only desktop/hosted workflows, sustained entry with 10,000 SKUs and 100 consecutive scans, café billing, and actual installation/update/data retention. The downloaded installer matches the build/release checksum. Workflow artifacts are a fallback. Keep a local copy and validate actual shop hardware before trading.
 
 Café POS sells menu items such as coffee and mojitos. Ingredients per serving are internal stock instructions, not a product sold to the customer. A customer sees the drink name, quantity and price on their bill. Packaged items use their normal stock quantities.
 
@@ -30,7 +30,9 @@ Reconcile records on every PC with the saved server backup before enabling a sha
 
 ## Keyboard access
 
-Ctrl+K finds pages/actions, Alt+K opens help, F2 opens POS, F3 searches/scans, F8 checks out and Ctrl+Enter saves a validated form. Tab/Shift+Tab, product/filter arrows, visible focus and dialog focus restoration work across the desktop and hosted workspace. See [complete guide](KEYBOARD.md). GitHub publishes the installer only after keyboard-only browser acceptance and actual Windows installation/update checks pass.
+F2 opens scanning; F3 searches; F5 selects a customer; F6 edits quantity; F7 edits discount; F8 checks out. Alt+C/U/D/B chooses checkout payment, F10 prints a saved receipt and F2 begins the next bill. Enter advances through validated fields, Shift+Enter goes back and Ctrl+Enter saves explicitly. Purchases scan/search each item, then Enter advances through quantity/cost to the next item; Alt+C sets a case and Alt+P selects amount paid. Page Up/Down browses full results and arrows move between products/record actions. See [complete guide](KEYBOARD.md).
+
+Basket updates retain the scan input rather than redrawing the entire catalogue. Product/stock/code indexes and pagination bound routine rendering. On the final isolated Windows run with 10,000 SKUs, median basket addition was 0.3 ms and scan-to-frame p95 was 15.1 ms; these are test-machine measurements, not a guarantee for every PC. Unknown/ambiguous codes, stock limits, restored drafts, pending saves and delayed suggestion selection are checked before release.
 
 ## Recovery, privacy and updates
 
