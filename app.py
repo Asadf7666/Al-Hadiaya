@@ -1,4 +1,4 @@
-"""Al Hidaya Traders — offline, single-PC shop management. Python standard library."""
+"""Al Hadiya Traders — offline, single-PC shop management. Python standard library."""
 import argparse
 import datetime as dt
 import json
@@ -97,7 +97,7 @@ class Shop:
         self.cloud_lock = threading.RLock()
         with self.connect() as db:
             db.executescript('PRAGMA journal_mode=WAL;' + SCHEMA)
-            defaults = {'name':'Al Hidaya Traders','address':'','phone':'','gstin':'','state':'29','gst_enabled':False,
+            defaults = {'name':'Al Hadiya Traders','address':'','phone':'','gstin':'','state':'29','gst_enabled':False,
                         'invoice_prefix':'AH','backup_folder':'','last_backup':'','printer':'80','demo':False,
                         'device_id':secrets.token_hex(8),'device_location':'','sync_folder':'','last_sync':'',
                         'admin_device_id':'','device_name':'','setup_role':'owner',
@@ -151,6 +151,8 @@ class Shop:
                 doc['snapshot'] = json.loads(doc['snapshot'])
             result['local'] = True
             result['notifications'] = [dict(r) for r in db.execute('SELECT * FROM notifications ORDER BY created DESC LIMIT 100')]
+            from media_catalogue import state as media_state
+            result.update(media_state(db))
             result['campaigns'] = [dict(r) for r in db.execute('SELECT * FROM whatsapp_campaigns ORDER BY created DESC LIMIT 100')]
             result['whatsapp_templates'] = [dict(r) for r in db.execute('SELECT * FROM whatsapp_templates ORDER BY name,language')]
             from outreach import webhook_configured
@@ -202,6 +204,9 @@ class Shop:
             return self.backup()
         if action == 'sync':
             return self.sync()
+        if action in ('media_upload','catalogue_product','catalogue_settings','catalogue_order_status'):
+            from media_catalogue import act
+            return act(self,action,data)
         if action in ('campaign_create','campaign_approve','campaign_cancel','whatsapp_templates','whatsapp_webhook'):
             from outreach import act
             return act(self,action,data)
@@ -923,6 +928,9 @@ class Shop:
                     source.backup(destination)
                     if destination.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                         raise ValueError('Backup integrity check failed.')
+                if (self.folder/'media').exists():
+                    import shutil
+                    shutil.copytree(self.folder/'media',target.with_suffix('.media'),dirs_exist_ok=True)
                 paths.append(str(target))
             source.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(now()),'last_backup'))
             return {'paths':paths,'message':'Verified database backup saved. Your cloud-folder app handles upload when online.'}
@@ -971,6 +979,13 @@ class Handler(BaseHTTPRequestHandler):
         if not self.valid_host():
             return self.send(403,{'error':'Local access only.'})
         path = urlparse(self.path).path
+        if path.startswith('/media/'):
+            from media_catalogue import asset_path
+            try:
+                ident=path[7:]
+                with self.shop.connect() as db:r=db.execute('SELECT mime FROM media_assets WHERE id=?',(ident,)).fetchone()
+                return self.send(200,asset_path(self.shop,ident).read_bytes(),r['mime']) if r else self.send(404,{'error':'Image not found.'})
+            except (ValueError,OSError):return self.send(404,{'error':'Image not found.'})
         if path == '/api/session':
             return self.send(200,{'token':TOKEN})
         if path == '/api/state':
@@ -994,7 +1009,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(403,{'error':'Local access only.'})
         try:
             size = int(self.headers.get('Content-Length',0))
-            if size < 1 or size > 1000000:
+            if size < 1 or size > 8000000:
                 raise ValueError('Invalid request size.')
             data = json.loads(self.rfile.read(size))
             path = urlparse(self.path).path
@@ -1023,10 +1038,13 @@ def restore_backup(shop, source):
             raise ValueError('Invalid backup.')
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not {'products','documents','settings','audit','movements','parties','recipes','payments','lines','expenses'} <= tables:
-            raise ValueError('Not an Al Hidaya backup.')
+            raise ValueError('Not an Al Hadiya backup.')
         shop.backup()
         with shop.connect() as target:
             db.backup(target)
+        if source.with_suffix('.media').is_dir():
+            import shutil
+            shutil.copytree(source.with_suffix('.media'),shop.folder/'media',dirs_exist_ok=True)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -1057,12 +1075,12 @@ def main():
                 webbrowser.open(f'http://127.0.0.1:{args.port}')
         except Exception:
             if os.name == 'nt':
-                __import__('ctypes').windll.user32.MessageBoxW(0,'The app port is occupied. Close the other app and try again.','Al Hidaya Traders',0)
+                __import__('ctypes').windll.user32.MessageBoxW(0,'The app port is occupied. Close the other app and try again.','Al Hadiya Traders',0)
             else:
                 print('App port is occupied. Close the other app or use --port.')
         return
     url = f'http://127.0.0.1:{args.port}'
-    print('Al Hidaya Traders:',url,'\nData:',shop.path,'\nKeep this window open. Ctrl+C to close.')
+    print('Al Hadiya Traders:',url,'\nData:',shop.path,'\nKeep this window open. Ctrl+C to close.')
     if not args.no_browser:
         webbrowser.open(url)
     def autobackup():

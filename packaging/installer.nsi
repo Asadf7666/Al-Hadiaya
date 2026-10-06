@@ -1,24 +1,24 @@
 !include "MUI2.nsh"
 !include "x64.nsh"
 Unicode true
-Name "Al Hidaya Traders"
-OutFile "../dist/AlHidayaTraders-Setup-0.5.0.exe"
+Name "Al Hadiya Traders"
+OutFile "../dist/AlHidayaTraders-Setup-0.6.0.exe"
 InstallDir "$LOCALAPPDATA\Programs\AlHidayaTraders"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
-VIProductVersion "0.5.0.0"
-VIAddVersionKey "ProductName" "Al Hidaya Traders"
+VIProductVersion "0.6.0.0"
+VIAddVersionKey "ProductName" "Al Hadiya Traders"
 VIAddVersionKey "FileDescription" "Offline shop manager installer (pilot)"
-VIAddVersionKey "FileVersion" "0.5.0"
-VIAddVersionKey "ProductVersion" "0.5.0"
-VIAddVersionKey "LegalCopyright" "Al Hidaya Traders"
-!define MUI_WELCOMEPAGE_TITLE "Welcome to Al Hidaya Traders"
+VIAddVersionKey "FileVersion" "0.6.0"
+VIAddVersionKey "ProductVersion" "0.6.0"
+VIAddVersionKey "LegalCopyright" "Al Hadiya Traders"
+!define MUI_WELCOMEPAGE_TITLE "Welcome to Al Hadiya Traders"
 !define MUI_WELCOMEPAGE_TEXT "Offline billing, warehouse stock and takeaway cafe management.$\r$\n$\r$\nThis pilot installs for your Windows account. Python is included. Updates back up your database before replacing application files.$\r$\n$\r$\nPlease close shop billing before updating. Test the pilot before using it for live trading."
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_RUN "$INSTDIR\AlHidayaTraders.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "Open Al Hidaya Traders"
+!define MUI_FINISHPAGE_RUN_TEXT "Open Al Hadiya Traders"
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -31,7 +31,7 @@ Function .onInit
   ${EndIf}
 FunctionEnd
 
-Section "Al Hidaya Traders"
+Section "Al Hadiya Traders"
   SetShellVarContext current
   IfFileExists "$INSTDIR\runtime\python.exe" 0 installfiles
   IfFileExists "$INSTDIR\packaging\maintenance.py" 0 installfiles
@@ -44,6 +44,7 @@ installfiles:
   File "../app.py"
   File "../notifications.py"
   File "../outreach.py"
+  File "../media_catalogue.py"
   File "../cloud_sync.py"
   File "../dist/AlHidayaTraders.exe"
   File "../README.md"
@@ -60,10 +61,10 @@ installfiles:
   SetOutPath "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateDirectory "$SMPROGRAMS\Al Hidaya Traders"
-  CreateShortcut "$SMPROGRAMS\Al Hidaya Traders\Al Hidaya Traders.lnk" "$INSTDIR\AlHidayaTraders.exe"
+  CreateShortcut "$SMPROGRAMS\Al Hidaya Traders\Al Hadiya Traders.lnk" "$INSTDIR\AlHidayaTraders.exe"
   CreateShortcut "$DESKTOP\Al Hidaya Traders.lnk" "$INSTDIR\AlHidayaTraders.exe"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "DisplayName" "Al Hidaya Traders"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "DisplayVersion" "0.5.0"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "DisplayName" "Al Hadiya Traders"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "DisplayVersion" "0.6.0"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "NoRepair" 1
@@ -80,6 +81,7 @@ removefiles:
   Delete "$INSTDIR\app.py"
   Delete "$INSTDIR\notifications.py"
   Delete "$INSTDIR\outreach.py"
+  Delete "$INSTDIR\media_catalogue.py"
   Delete "$INSTDIR\cloud_sync.py"
   Delete "$INSTDIR\README.md"
   Delete "$INSTDIR\VERSION"
@@ -90,7 +92,7 @@ removefiles:
   RMDir /r "$INSTDIR\packaging"
   RMDir "$INSTDIR"
   Delete "$DESKTOP\Al Hidaya Traders.lnk"
-  Delete "$SMPROGRAMS\Al Hidaya Traders\Al Hidaya Traders.lnk"
+  Delete "$SMPROGRAMS\Al Hidaya Traders\Al Hadiya Traders.lnk"
   RMDir "$SMPROGRAMS\Al Hidaya Traders"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders"
   MessageBox MB_ICONINFORMATION "Application removed. Your database and backups remain in %LOCALAPPDATA%\AlHidayaTraders."

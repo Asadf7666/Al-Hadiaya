@@ -14,7 +14,7 @@ class OutreachTests(unittest.TestCase):
   self.tmp=tempfile.TemporaryDirectory();self.shop=Shop(self.tmp.name)
   self.shop.act('whatsapp_settings',{'whatsapp_enabled':True,'whatsapp_phone_id':'123456','whatsapp_waba_id':'654321','whatsapp_api_version':'v26.0','whatsapp_language':'en_US'})
   with self.shop.connect() as db:
-   db.execute('INSERT INTO whatsapp_templates VALUES(?,?,?,?,?,?,?)',('offers','en_US','APPROVED','MARKETING','Hello {{1}}, {{2}}: {{3}}',1,dt.datetime.now(dt.timezone.utc).isoformat()))
+   db.execute('INSERT INTO whatsapp_templates(name,language,status,category,body,supported,checked) VALUES(?,?,?,?,?,?,?)',('offers','en_US','APPROVED','MARKETING','Hello {{1}}, {{2}}: {{3}}',1,dt.datetime.now(dt.timezone.utc).isoformat()))
  def tearDown(self):self.tmp.cleanup()
  def customer(self,phone='9876543210',**kw):
   return self.shop.act('party',{'name':'Customer','kind':'customer','phone':phone,**kw})['id']

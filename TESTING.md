@@ -48,3 +48,10 @@ Actual hosted 0.4.0 browser validation passed against AWS HTTPS: a node labelled
 - Twelve app-generated receipt/internal-alert cases were attempted live; custom-template sends were rejected with Meta error 132001 while the four business templates were PENDING. No successful delivery of those custom templates is claimed. Approved Meta sample-format results are recorded in whatsapp/LIVE-TEST-RESULTS.md.
 
 - Expanded live provider tests: all 16 approved Meta sample messages returned message IDs (4 format checks and 12 TEST ONLY business-case parameter checks). Delivery/read is not inferred from API acceptance. The catalogue-message attempt returned error 131009; the owned-catalogue listing requires business_management permission. Media sample tests do not establish media campaign support in the app UI.
+
+
+## Version 0.6 image campaigns and photo catalogue
+
+Added checks for image validation, private/public image access, positive-price publication, server-side repricing, idempotent and concurrent order submissions, unchanged stock/customer/payment ledgers, image headers in provider payloads and media backup restoration. Native Meta Commerce remains permission blocked. Direct branded-image delivery and custom-template approval are reported separately from automated tests. Windows installer execution and physical hardware remain unverified.
+
+Validation: 69 automated tests passed. Chromium exercised actual image upload and campaign-photo preview, a customer basket/order request, and a second basket after submission without JavaScript errors. The image-template test used fake credentials and sent no external outreach.

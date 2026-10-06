@@ -30,7 +30,7 @@ class Online:
         self.shop=Shop(folder);self.origin=origin.rstrip('/');self.secure=secure
         from cloud_sync import Hub
         self.hub=Hub(self.shop)
-        self.failed={};self.lock=threading.RLock()
+        self.failed={};self.order_attempts={};self.lock=threading.RLock()
         with self.shop.connect() as db:
             db.executescript('''CREATE TABLE IF NOT EXISTS web_users(id INTEGER PRIMARY KEY,username TEXT UNIQUE,name TEXT,role TEXT,location TEXT,salt TEXT,password_hash TEXT,active INTEGER DEFAULT 1);
             CREATE TABLE IF NOT EXISTS web_sessions(digest TEXT PRIMARY KEY,user_id INTEGER REFERENCES web_users(id),csrf TEXT,expires REAL);
@@ -79,7 +79,7 @@ class Online:
         result['local']=False;result['online']=True;result['web_user']={k:user[k] for k in ('username','name','role','location')}
         s['device_location']=user['location']
         if user['role']!='owner':
-            result['internal_contacts']=[];result['notifications']=[];result['campaigns']=[];result['whatsapp_templates']=[];result['whatsapp_webhook_configured']=False;result['whatsapp_token_configured']=False
+            result['media_assets']=[];result['catalogue_products']=[];result['catalogue_orders']=[];result['internal_contacts']=[];result['notifications']=[];result['campaigns']=[];result['whatsapp_templates']=[];result['whatsapp_webhook_configured']=False;result['whatsapp_token_configured']=False
             for key in tuple(s):
                 if key.startswith('whatsapp_'):s[key]=False if isinstance(s[key],bool) else ''
             result['devices']=[];result['allocations']=[];result['sync_errors']=[]
@@ -121,7 +121,7 @@ class Online:
         with self.shop.connect() as db:db.execute('INSERT INTO web_audit(created,user_id,action) VALUES(?,?,?)',(time.time(),user['id'],action))
         return result
 
-LOGIN='''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Al Hidaya · Staff sign in</title><link rel="stylesheet" href="/style.css"><body style="display:grid;place-items:center;min-height:100vh;background:#f6f6ef"><main class="card" style="max-width:430px;padding:36px;margin:20px"><div class="eyebrow">AL HIDAYA TRADERS</div><h1>Welcome back.</h1><p>Sign in to your business workspace.</p><form method="post" action="/login"><label>Username</label><input name="username" autocomplete="username" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><button class="btn gold" style="margin-top:24px;width:100%">Sign in</button></form><p style="color:#ac3333">{error}</p><small>Temporary review · use test data only.</small><p><a href="/">← Visit our website</a></p></main></body></html>'''
+LOGIN='''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Al Hadiya · Staff sign in</title><link rel="stylesheet" href="/style.css"><body style="display:grid;place-items:center;min-height:100vh;background:#f6f6ef"><main class="card" style="max-width:430px;padding:36px;margin:20px"><div class="eyebrow">AL HADIYA TRADERS</div><h1>Welcome back.</h1><p>Sign in to your business workspace.</p><form method="post" action="/login"><label>Username</label><input name="username" autocomplete="username" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><button class="btn gold" style="margin-top:24px;width:100%">Sign in</button></form><p style="color:#ac3333">{error}</p><small>Temporary review · use test data only.</small><p><a href="/">← Visit our website</a></p></main></body></html>'''
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     @property
@@ -137,12 +137,24 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/':return self.send(200,(ROOT/'marketing/index.html').read_bytes(),'text/html; charset=utf-8')
         if path in ('/privacy','/data-deletion'):return self.send(200,(ROOT/'marketing'/(path[1:]+'.html')).read_bytes(),'text/html; charset=utf-8')
         if path=='/login':return self.send(200,LOGIN.format(error=''),'text/html; charset=utf-8')
+        if path=='/catalogue':return self.send(200,(ROOT/'marketing/catalogue.html').read_bytes(),'text/html; charset=utf-8')
+        if path=='/api/catalogue':
+            from media_catalogue import public_state
+            return self.send(200,public_state(self.online.shop))
+        if path.startswith('/media/'):
+            from media_catalogue import public_asset,asset_path
+            try:
+                ident=path[7:]
+                with self.online.shop.connect() as db:r=db.execute('SELECT mime FROM media_assets WHERE id=?',(ident,)).fetchone()
+                if not r or (not user and not public_asset(self.online.shop,ident)):return self.send(404,{'error':'Image not found.'})
+                return self.send(200,asset_path(self.online.shop,ident).read_bytes(),r['mime'])
+            except (ValueError,OSError):return self.send(404,{'error':'Image not found.'})
         if path=='/health':return self.send(200,{'status':'ok'})
         if path=='/webhooks/whatsapp':
             from outreach import challenge
             try:return self.send(200,challenge(self.online.shop,parse_qs(urlparse(self.path).query)),'text/plain')
             except PermissionError:return self.send(403,{'error':'Webhook verification failed.'})
-        downloads={'/downloads/AlHidayaTraders-Setup-0.5.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.5.0.zip':'application/zip'}
+        downloads={'/downloads/AlHidayaTraders-Setup-0.6.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.6.0.zip':'application/zip'}
         if path in downloads:
             file=ROOT/'dist'/Path(path).name
             if not file.is_file():return self.send(404,{'error':'Download is being prepared.'})
@@ -182,7 +194,7 @@ class Handler(BaseHTTPRequestHandler):
                     line=self.rfile.readline(128)
                     if not line.endswith(b'\r\n'):raise ValueError('Invalid request encoding.')
                     length=int(line.split(b';')[0].strip(),16)
-                    if length<0 or size+length>3000000:raise ValueError('Request too large.')
+                    if length<0 or size+length>8000000:raise ValueError('Request too large.')
                     if not length:
                         if self.rfile.readline(8192)!=b'\r\n':raise ValueError('Request trailers are not accepted.')
                         break
@@ -192,13 +204,23 @@ class Handler(BaseHTTPRequestHandler):
                 raw=b''.join(chunks)
             else:
                 size=int(self.headers.get('Content-Length',0))
-                if size<1 or size>3000000:raise ValueError('Invalid request size.')
+                if size<1 or size>8000000:raise ValueError('Invalid request size.')
                 raw=self.rfile.read(size)
                 if len(raw)!=size:raise ValueError('Incomplete request.')
             if path=='/webhooks/whatsapp':
                 from outreach import receive
                 if len(raw)>1000000:raise ValueError('Webhook too large.')
                 return self.send(200,receive(self.online.shop,raw,self.headers.get('X-Hub-Signature-256','')))
+            if path=='/api/catalogue-order':
+                from media_catalogue import order
+                if len(raw)>16000:raise ValueError('Order request too large.')
+                ip=self.headers.get('X-Forwarded-For',self.client_address[0]).split(',')[0]
+                with self.online.lock:
+                    attempts=[t for t in self.online.order_attempts.get(ip,[]) if time.time()-t<3600]
+                    if len(attempts)>=6:return self.send(429,{'error':'Too many order requests. Please contact the shop.'})
+                    if len(self.online.order_attempts)>10000:self.online.order_attempts={}
+                    self.online.order_attempts[ip]=attempts+[time.time()]
+                return self.send(200,order(self.online.shop,json.loads(raw)))
             if device_request:
                 data=json.loads(raw)
                 if path=='/api/device-pair':return self.send(200,self.online.hub.pair(data))

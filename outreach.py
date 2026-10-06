@@ -21,6 +21,8 @@ def migrate(db):
       CREATE TABLE IF NOT EXISTS whatsapp_receipts(provider_id TEXT PRIMARY KEY,status TEXT NOT NULL,timestamp INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS whatsapp_inbound(id TEXT PRIMARY KEY,created TEXT NOT NULL);
     ''')
+    from media_catalogue import migrate as migrate_media
+    migrate_media(db)
     for key,kind,default in [('campaign_id','TEXT',"''"),('language','TEXT',"''")]:
         if key not in {r[1] for r in db.execute('PRAGMA table_info(notifications)')}:
             db.execute('ALTER TABLE notifications ADD COLUMN '+key+' '+kind+' NOT NULL DEFAULT '+default)
@@ -53,9 +55,11 @@ def save_webhook(folder,data):
 
 def supported_template(components):
     body=next((c.get('text','') for c in components if c.get('type')=='BODY'),'')
-    supported=set(re.findall(r'\{\{(\d+)\}\}',body))=={'1','2','3'}
+    variables=set(re.findall(r'\{\{(\d+)\}\}',body))
+    supported=variables in (set(),{'1','2','3'})
     for c in components:
-        if c.get('type')=='HEADER' and (c.get('format')!='TEXT' or '{{' in c.get('text','')):supported=False
+        if c.get('type')=='HEADER' and (c.get('format') not in ('TEXT','IMAGE') or '{{' in c.get('text','')):supported=False
+        if c.get('type')=='CAROUSEL':supported=False
         if c.get('type')=='BUTTONS' and any('{{' in str(b) or b.get('type')=='FLOW' for b in c.get('buttons',[])):supported=False
     return body,supported
 
@@ -83,7 +87,9 @@ def refresh_templates(shop):
         db.execute('DELETE FROM whatsapp_templates')
         for item in items:
             body,supported=supported_template(item.get('components',[]))
-            db.execute('INSERT INTO whatsapp_templates VALUES(?,?,?,?,?,?,?)',(item['name'],item['language'],item['status'],item.get('category',''),body,int(supported),dt.datetime.now(dt.timezone.utc).isoformat()))
+            header=next((c.get('format','') for c in item.get('components',[]) if c.get('type')=='HEADER'),'')
+            count=len(set(re.findall(r'\{\{(\d+)\}\}',body)))
+            db.execute('INSERT INTO whatsapp_templates(name,language,status,category,body,supported,checked,header_format,parameter_count,components) VALUES(?,?,?,?,?,?,?,?,?,?)',(item['name'],item['language'],item['status'],item.get('category',''),body,int(supported),dt.datetime.now(dt.timezone.utc).isoformat(),header,count,json.dumps(item.get('components',[]))))
     return {'count':len(items)}
 
 
@@ -110,8 +116,11 @@ def act(shop,action,data):
             if not name or len(name)>100 or not offer or len(offer)>800:raise ValueError('Enter a campaign name (up to 100 characters) and offer (up to 800).')
             template=str(data.get('template',''));language=str(data.get('language',''))
             t=db.execute('SELECT * FROM whatsapp_templates WHERE name=? AND language=?',(template,language)).fetchone()
-            if not t or t['status']!='APPROVED' or t['category']!='MARKETING' or not t['supported']:
-                raise ValueError('Refresh templates and select an approved marketing template with three body text parameters.')
+            if not t or t['category']!='MARKETING' or not t['supported']:
+                raise ValueError('Refresh templates and select a supported marketing template.')
+            asset=str(data.get('asset_id',''))
+            if t['header_format']=='IMAGE' and not db.execute('SELECT 1 FROM media_assets WHERE id=?',(asset,)).fetchone():raise ValueError('Choose an uploaded campaign image.')
+            if t['header_format']!='IMAGE':asset=''
             ids=data.get('customer_ids',[])
             if not isinstance(ids,list) or not ids or len(ids)>1000:raise ValueError('Select between 1 and 1000 customers.')
             recipients=eligible(db,ids)
@@ -124,7 +133,7 @@ def act(shop,action,data):
                 if when<=dt.datetime.now(dt.timezone.utc):raise ValueError('Schedule a future time, or leave it blank to send after approval.')
                 scheduled=when.isoformat()
             ident=secrets.token_hex(16)
-            db.execute('INSERT INTO whatsapp_campaigns(id,name,created,template,language,offer,recipients,scheduled) VALUES(?,?,?,?,?,?,?,?)',(ident,name,dt.datetime.now(dt.timezone.utc).isoformat(),template,language,offer,json.dumps(recipients),scheduled))
+            db.execute('INSERT INTO whatsapp_campaigns(id,name,created,template,language,offer,recipients,scheduled,asset_id) VALUES(?,?,?,?,?,?,?,?,?)',(ident,name,dt.datetime.now(dt.timezone.utc).isoformat(),template,language,offer,json.dumps(recipients),scheduled,asset))
             shop.audit(db,action,{'id':ident,'count':len(recipients)})
             return {'id':ident,'recipient_count':len(recipients)}
         row=db.execute('SELECT * FROM whatsapp_campaigns WHERE id=?',(str(data.get('id','')),)).fetchone()
@@ -141,13 +150,15 @@ def act(shop,action,data):
         if dt.datetime.now(dt.timezone.utc)-dt.datetime.fromisoformat(t['checked'])>dt.timedelta(hours=24):raise ValueError('Refresh templates before approving this campaign.')
         s=shop.settings(db)
         if not s['whatsapp_enabled'] or not read_token(shop.folder):raise ValueError('Configure and enable a notification sender before approving a campaign.')
+        from media_catalogue import meta_image
+        image_id=meta_image(shop,row['asset_id'],db) if t['header_format']=='IMAGE' else ''
         count=0
         for recipient in json.loads(row['recipients']):
             current=eligible(db,[recipient['id']])
             if not current or current[0]['phone']!=recipient['phone']:continue
             ident='campaign:'+row['id']+':'+recipient['phone']
-            shop.notification(db,ident,'marketing',recipient['phone'],row['template'],[current[0]['name'],s['name'],row['offer']],party_id=recipient['id'])
-            db.execute('UPDATE notifications SET campaign_id=?,language=?,next_attempt=? WHERE id=?',(row['id'],row['language'],row['scheduled'] or dt.datetime.now(dt.timezone.utc).isoformat(),ident));count+=1
+            shop.notification(db,ident,'marketing',recipient['phone'],row['template'],[current[0]['name'],s['name'],row['offer']] if t['parameter_count'] else [],party_id=recipient['id'])
+            db.execute('UPDATE notifications SET campaign_id=?,language=?,image_id=?,next_attempt=? WHERE id=?',(row['id'],row['language'],image_id,row['scheduled'] or dt.datetime.now(dt.timezone.utc).isoformat(),ident));count+=1
         if not count:raise ValueError('All previewed recipients opted out or changed their mobile number. Create a fresh campaign.')
         db.execute("UPDATE whatsapp_campaigns SET status='approved',approved=? WHERE id=?",(dt.datetime.now(dt.timezone.utc).isoformat(),row['id']))
         shop.audit(db,action,{'id':row['id'],'count':count})

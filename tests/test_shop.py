@@ -43,7 +43,7 @@ class ShopTests(unittest.TestCase):
         d=self.shop.state()['documents'][0]
         self.assertEqual(d['snapshot']['items'][0]['igst_amount'],4000)
         self.shop.act('settings',{'name':'New name'})
-        self.assertEqual(self.shop.state()['documents'][0]['snapshot']['shop']['name'],'Al Hidaya Traders')
+        self.assertEqual(self.shop.state()['documents'][0]['snapshot']['shop']['name'],'Al Hadiya Traders')
     def test_small_tax_rounding_never_negative(self):
         p=self.product(price=.03,gst=18);self.enable_gst();self.sale(p)
         i=self.shop.state()['documents'][0]['snapshot']['items'][0]

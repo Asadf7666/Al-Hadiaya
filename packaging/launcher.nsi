@@ -1,5 +1,5 @@
 Unicode true
-Name "Al Hidaya Traders"
+Name "Al Hadiya Traders"
 OutFile "../dist/AlHidayaTraders.exe"
 RequestExecutionLevel user
 SilentInstall silent
@@ -10,5 +10,5 @@ Section
   IfErrors missing
   Quit
 missing:
-  MessageBox MB_ICONSTOP "Application files are missing. Reinstall Al Hidaya Traders. Your shop database will be preserved."
+  MessageBox MB_ICONSTOP "Application files are missing. Reinstall Al Hadiya Traders. Your shop database will be preserved."
 SectionEnd

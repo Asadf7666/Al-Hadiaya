@@ -1,19 +1,19 @@
-# Al Hidaya Traders — Shop Manager 0.5.0
+# Al Hadiya Traders — Shop Manager 0.6.0
 
 An owned Windows and web shop manager for an Indian trading warehouse/retail counter and a takeaway café. Every paired PC has all business functions. Warehouse and Outlet identify transaction locations, not device permissions or separate applications. Internet is not needed for local Windows operations. The browser website requires a connection to its server.
 
 ## Install or update Windows
 
-1. Run `AlHidayaTraders-Setup-0.5.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
+1. Run `AlHidayaTraders-Setup-0.6.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
 2. Open the app from its desktop or Start Menu shortcut. The launcher serves the interface at `127.0.0.1:8765` and must remain open.
 3. Choose the default transaction location in the header or Settings. Every node can work with both locations, receive purchases, record payments, manage stock and products, define recipes, issue credit bills and change business/GST details.
-4. Confirm real prices, stock, pack quantities, barcodes and tax classifications before live trading. Karnataka defaults to state code 29. The installer is unsigned and remains a pilot; physical printer/scanner testing and the 0.5.0 installer execution on Windows 10/11 have not been verified here.
+4. Confirm real prices, stock, pack quantities, barcodes and tax classifications before live trading. Karnataka defaults to state code 29. The installer is unsigned and remains a pilot; physical printer/scanner testing and the 0.6.0 installer execution on Windows 10/11 have not been verified here.
 
 ## Connect a node to the online business
 
 1. As owner in the online app, open Account & staff → Connect a Windows PC. Choose its default location and generate a one-time code. The code expires after ten minutes and binds to one identity; it does not assign a restricted device role or stock quota.
 2. On an empty Windows app or one containing only disposable samples, open Settings → Connect to online business. Enter the server HTTPS origin, code and a PC name. The app backs up existing local records, then adopts the server's shared records. This join flow does not merge real historical databases.
-3. On an already paired node, upgrade in place and click Sync now. The 0.5.0 sync protocol requires every connected Windows installation to upgrade; older apps retain their local records but must update before exchange.
+3. On an already paired node, upgrade in place and click Sync now. Versions 0.5 and 0.6 use sync protocol 3. Earlier installations must upgrade before exchange; their local records remain preserved.
 4. If the same server's IP/domain changes, use Settings → Update server address. This verifies the existing credential and business identity at the new HTTPS origin, and preserves records and pending operations. This does not migrate to a new server/business.
 5. Exchange runs every 30 seconds while the launcher is open. Offline changes stay in the local database and upload on reconnection. The online server also relays changes between PCs. Repeated uploads are idempotent.
 
@@ -59,7 +59,7 @@ Internal alert options cover low stock, purchases, transfers, sales, payments, e
 
 The hosted `/webhooks/whatsapp` endpoint verifies subscription challenges and Meta's SHA-256 signature using protected webhook credentials. It records sent/delivered/read/failed statuses and processes STOP, UNSUBSCRIBE, CANCEL and OPT OUT replies without sending a response. Opt-outs sync to the PCs. Set up the app secret and verification token through WhatsApp updates, then subscribe the messages field in Meta. The app includes public `/privacy` and `/data-deletion` pages; review and complete business contact details before production use. See `whatsapp/SETUP.md` for remaining Meta steps.
 
-Outboxes, campaigns, internal recipient lists and sender credentials are local to their sender; they do not replicate. Use the hosted sender to track webhook delivery for the messages it sends. Do not enable multiple independent senders for the same alerts. API accepted is distinct from delivered/read. Uncertain requests are never automatically retried. This implementation does not create or post to WhatsApp Channels or app broadcast lists; outreach sends individual template messages. Test-number access is limited to Meta-verified recipients, and production requires your business number and credentials. The owner confirmed an initial Hello World delivery. Expanded live tests returned 16 accepted Meta sample messages; delivery of that batch awaits recipient confirmation. Actual Al Hidaya templates remain pending and the catalogue test is blocked. Automated campaign tests use mocks. See `whatsapp/LIVE-TEST-RESULTS.md` for the exact limits.
+Outboxes, campaigns, internal recipient lists and sender credentials are local to their sender; they do not replicate. Use the hosted sender to track webhook delivery for the messages it sends. Do not enable multiple independent senders for the same alerts. API accepted is distinct from delivered/read. Uncertain requests are never automatically retried. This implementation does not create or post to WhatsApp Channels or app broadcast lists; outreach sends individual template messages. Test-number access is limited to Meta-verified recipients, and production requires your business number and credentials. The owner confirmed an initial Hello World delivery. Expanded live tests returned 16 accepted Meta sample messages; delivery of that batch awaits recipient confirmation. Actual Al Hadiya templates remain pending and the catalogue test is blocked. Automated campaign tests use mocks. See `whatsapp/LIVE-TEST-RESULTS.md` for the exact limits.
 
 
 ## Backups, closing and updates
@@ -108,3 +108,12 @@ python -m unittest discover -s tests -v
 ```
 
 For disposable exploration use `python app.py --data-dir ./sample-data --port 8766` and Explore sample shop. Packaging uses NSIS and the pinned official Python 3.14.8 embedded runtime with SHA-256 verification. Build tooling is not needed on shop PCs. See `packaging/build.py`, `TESTING.md` and `RESEARCH.md`.
+
+
+## Photo campaigns and customer catalogue (0.6)
+
+Owners can upload JPEG/PNG images up to 5 MB, use IMAGE-header marketing templates, and preview the photograph with the exact message before approving. Templates may have zero or three body variables; unsupported dynamic buttons, flows and carousels remain unavailable for app campaigns. Pending templates can be drafted but cannot be approved for sending.
+
+In WhatsApp updates, publish selected sellable products with a photograph, positive retail price and description, then enable the hosted customer catalogue at `/catalogue`. Ingredient records and unpublished items stay private. Customers can browse, search, build a basket and submit an order request with contact consent. The server recalculates prices and suppresses duplicate submission IDs. Requests do not reserve stock, collect money, create invoices or enrol customers for marketing. An owner can review a request, change its status and prepare a normal POS bill for final checkout.
+
+This web catalogue is independent of Meta Commerce; it does not create a native WhatsApp Shop. Native product messages still require a linked Meta catalogue and appropriate permissions. Uploaded images, catalogue publication and order requests belong to the installation where they are created; they are not part of business-record sync. Configure the public catalogue on the hosted app. Folder backups include a matching `.media` sidecar directory; retain it alongside the database when restoring. Database-only downloads do not contain photographs or sender secrets.

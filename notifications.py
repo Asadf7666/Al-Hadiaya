@@ -65,7 +65,12 @@ def deliver(settings, token, row):
         raise ValueError('Configure the Graph API version and WhatsApp sender phone-number ID.')
     payload={'messaging_product':'whatsapp','recipient_type':'individual','to':row['phone'],'type':'template',
              'template':{'name':row['template'],'language':{'code':row.get('language') or settings['whatsapp_language']},
-             'components':[{'type':'body','parameters':[{'type':'text','text':str(v)} for v in json.loads(row['parameters'])]}]}}
+             'components':[]}}
+    if row.get('image_id'):
+        payload['template']['components'].append({'type':'header','parameters':[{'type':'image','image':{'id':row['image_id']}}]})
+    params=json.loads(row['parameters'])
+    if params:payload['template']['components'].append({'type':'body','parameters':[{'type':'text','text':str(v)} for v in params]})
+    if not payload['template']['components']:payload['template'].pop('components')
     req=urllib.request.Request(f'https://graph.facebook.com/{version}/{phone_id}/messages',
         data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
     try:
