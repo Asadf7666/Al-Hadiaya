@@ -71,6 +71,10 @@ def deliver(settings, token, row):
     params=json.loads(row['parameters'])
     if params:payload['template']['components'].append({'type':'body','parameters':[{'type':'text','text':str(v)} for v in params]})
     if not payload['template']['components']:payload['template'].pop('components')
+    if row.get('message_type')=='session':
+        content=json.loads(row['payload'])
+        if content.get('type') not in ('text','interactive'):raise ValueError('Unsupported service message.')
+        payload={'messaging_product':'whatsapp','recipient_type':'individual','to':row['phone'],**content}
     req=urllib.request.Request(f'https://graph.facebook.com/{version}/{phone_id}/messages',
         data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
     try:
@@ -81,8 +85,11 @@ def deliver(settings, token, row):
             return 'uncertain','No message ID was returned. Check Meta before sending again.',''
         return 'accepted','Accepted by WhatsApp API; delivery/read status requires later webhook integration.',message_id
     except urllib.error.HTTPError as e:
-        # Do not return response bodies: they may contain business data or credentials.
-        return ('retry' if e.code==429 or e.code>=500 else 'failed'),f'WhatsApp API returned HTTP {e.code}. Check template approval, sender setup and permissions.',''
+        # Extract numeric error codes only, never raw responses or credentials.
+        try:code=json.load(e).get('error',{}).get('code')
+        except Exception:code=None
+        reason={132001:'Template is not approved/available in the selected language.',131047:'The 24-hour service window has expired; an approved template is required.',131009:'Catalogue/product setup or message parameters are invalid.',131026:'Recipient cannot receive this WhatsApp message.',131049:'Meta restricted marketing delivery to this recipient.'}.get(code,'Check sender setup, template and permissions.')
+        return ('retry' if e.code==429 or e.code>=500 else 'failed'),f'WhatsApp HTTP {e.code}, code {code}: {reason}',''
     except (TimeoutError,urllib.error.URLError,OSError,json.JSONDecodeError):
         return 'uncertain','The response was lost or unavailable. Check Meta before retrying to avoid duplicate notifications.',''
 
@@ -95,7 +102,7 @@ def process_outbox(shop):
         if not token:
             return {'processed':0,'message':'WhatsApp token is not configured.'}
         current=dt.datetime.now().astimezone().isoformat()
-        rows=[dict(r) for r in db.execute("SELECT * FROM notifications WHERE status IN ('queued','retry') AND julianday(next_attempt)<=julianday(?) ORDER BY created LIMIT 10",(current,))]
+        rows=[dict(r) for r in db.execute("SELECT * FROM notifications WHERE status IN ('queued','retry','blocked') AND julianday(next_attempt)<=julianday(?) ORDER BY created LIMIT 10",(current,))]
         # Claim before network I/O. A crash cannot automatically resubmit a possibly sent message.
         for row in rows:
             db.execute("UPDATE notifications SET status='sending',attempts=attempts+1 WHERE id=?",(row['id'],))
@@ -105,6 +112,12 @@ def process_outbox(shop):
                 if row['internal_id'] is not None:
                     p=db.execute('SELECT * FROM internal_contacts WHERE id=?',(row['internal_id'],)).fetchone()
                     consent=p and p['opt_in']
+                elif row['kind'] in ('order','catalogue'):
+                    from whatsapp_orders import window
+                    session=db.execute('SELECT * FROM whatsapp_sessions WHERE phone=?',(row['phone'],)).fetchone()
+                    order=db.execute('SELECT * FROM trade_orders WHERE id=?',(row.get('order_id',''),)).fetchone()
+                    p={'phone':row['phone']}
+                    consent=bool(session and not session['stopped'] and (order['contact_allowed'] if order else window(db,row['phone'])))
                 else:
                     p=db.execute('SELECT * FROM parties WHERE id=?',(row['party_id'],)).fetchone()
                     consent=p and p['whatsapp_marketing_opt_in' if row['kind']=='marketing' else 'whatsapp_opt_in']
@@ -116,6 +129,19 @@ def process_outbox(shop):
                 if not consent or whatsapp_number(p['phone'])!=row['phone']:
                     db.execute("UPDATE notifications SET status='cancelled',detail='Recipient opted out or changed mobile number.' WHERE id=?",(row['id'],))
                     continue
+                from whatsapp_orders import window
+                if row['internal_id'] is not None and window(db,row['phone']):
+                    params=json.loads(row['parameters'])
+                    row['message_type']='session';row['payload']=json.dumps({'type':'text','text':{'body':'INTERNAL · '+str(params[0])+'\n'+str(params[1])+'\n'+str(params[2])}})
+                if row.get('message_type')=='session' and not window(db,row['phone']):
+                    if not row.get('order_id'):
+                        db.execute("UPDATE notifications SET status='cancelled',detail='Service window expired. Customer must send a new message.' WHERE id=?",(row['id'],));continue
+                    row['message_type']='template'
+                if row.get('message_type','template')=='template':
+                    template=db.execute('SELECT status FROM whatsapp_templates WHERE name=? AND language=?',(row['template'],row.get('language') or settings['whatsapp_language'])).fetchone()
+                    if template and template['status']!='APPROVED':
+                        wait=(dt.datetime.now().astimezone()+dt.timedelta(minutes=5)).isoformat()
+                        db.execute("UPDATE notifications SET status='blocked',detail=?,attempts=attempts-1,next_attempt=? WHERE id=?",('Waiting for Meta template approval: '+row['template'],wait,row['id']));continue
             status,detail,message_id=deliver(settings,token,row)
         except Exception:
             status,detail,message_id='failed','Check notification configuration. No automatic retry was scheduled.',''

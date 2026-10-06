@@ -57,3 +57,10 @@ Added checks for image validation, private/public image access, positive-price p
 Validation: 69 automated tests passed. Chromium exercised actual image upload and campaign-photo preview, a customer basket/order request, and a second basket after submission without JavaScript errors. The image-template test used fake credentials and sent no external outreach.
 
 Hosted 0.6 deployment passed: database backup and migration, branded image upload via HTTPS, campaign form and image library, public banner and mobile catalogue rendering, installer/source SHA-256 checks. NSIS compiled the 0.6 installer with the pinned runtime; Windows execution remains unverified. Meta accepted the direct branded image, and the five correctly spelled business templates returned PENDING. See the live test report for distinctions between acceptance, delivery and template approval.
+
+
+## Version 0.7 native WhatsApp carts and internal automation
+
+Tests cover signed cart intake and duplicate suppression, case conversions, unchanged ledgers on intake, unknown items/currency/price guards, explicit revised-price confirmation, live stock recheck, native catalogue reply payloads, number-private status replies, STOP, internal service-window delivery and blocked pending templates, shared orders billed from a peer, atomic invoice linkage and concurrent offline duplicate-invoice conflict rollback, protocol-3 rejection, real-link checks and Meta feed price/photo/availability. Chromium completed staff confirmation → linked POS invoice with stock checks, and checked catalogue configuration and sender diagnostics without JavaScript errors. Fake credentials and an isolated test database were used for workflow tests; no real native catalogue cart has been received.
+
+Validation: 82 automated tests passed; NSIS compiled the 0.7 installer. Windows execution remains unverified. Hosted/live provider results are recorded separately after deployment.

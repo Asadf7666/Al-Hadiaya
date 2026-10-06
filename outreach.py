@@ -23,6 +23,8 @@ def migrate(db):
     ''')
     from media_catalogue import migrate as migrate_media
     migrate_media(db)
+    from whatsapp_orders import migrate as migrate_orders
+    migrate_orders(db)
     for key,kind,default in [('campaign_id','TEXT',"''"),('language','TEXT',"''")]:
         if key not in {r[1] for r in db.execute('PRAGMA table_info(notifications)')}:
             db.execute('ALTER TABLE notifications ADD COLUMN '+key+' '+kind+' NOT NULL DEFAULT '+default)
@@ -140,7 +142,7 @@ def act(shop,action,data):
         if not row:raise ValueError('Campaign not found.')
         if action=='campaign_cancel':
             db.execute("UPDATE whatsapp_campaigns SET status='cancelled' WHERE id=?",(row['id'],))
-            db.execute("UPDATE notifications SET status='cancelled',detail='Campaign cancelled by owner.' WHERE campaign_id=? AND status IN ('queued','retry')",(row['id'],))
+            db.execute("UPDATE notifications SET status='cancelled',detail='Campaign cancelled by owner.' WHERE campaign_id=? AND status IN ('queued','retry','blocked')",(row['id'],))
             shop.audit(db,action,{'id':row['id']})
             return {'cancelled':True}
         if action!='campaign_approve' or row['status']!='draft':raise ValueError('Only a draft campaign can be approved once.')
@@ -196,17 +198,24 @@ def receive(shop,raw,signature):
                     db.execute('INSERT OR REPLACE INTO whatsapp_receipts VALUES(?,?,?)',(ident,state,stamp))
                     apply_receipt(db,ident)
                 for message in value.get('messages',[]):
-                    text=message.get('text',{}).get('body','') if message.get('type')=='text' else message.get('button',{}).get('text','')
-                    if str(text).strip().upper() not in ('STOP','UNSUBSCRIBE','CANCEL','OPT OUT'):continue
                     mid=str(message.get('id',''))
                     if not mid or db.execute('SELECT 1 FROM whatsapp_inbound WHERE id=?',(mid,)).fetchone():continue
-                    phone=whatsapp_number(message.get('from',''))
                     before=before or shop.capture(db)
+                    from whatsapp_orders import inbound
+                    inbound(db,shop,message,value.get('contacts',[]))
+                    text=message.get('text',{}).get('body','') if message.get('type')=='text' else message.get('button',{}).get('text','')
+                    if str(text).strip().upper() not in ('STOP','UNSUBSCRIBE','CANCEL','OPT OUT'):
+                        db.execute('INSERT INTO whatsapp_inbound VALUES(?,?)',(mid,dt.datetime.now(dt.timezone.utc).isoformat()))
+                        continue
+                    mid=str(message.get('id',''))
+                    phone=whatsapp_number(message.get('from',''))
+                    db.execute('UPDATE whatsapp_sessions SET stopped=1 WHERE phone=?',(phone,))
+                    db.execute('UPDATE trade_orders SET contact_allowed=0,updated=? WHERE phone=?',(dt.datetime.now(dt.timezone.utc).isoformat(),phone))
                     for p in db.execute("SELECT * FROM parties WHERE kind='customer'").fetchall():
                         try:same=whatsapp_number(p['phone'])==phone
                         except ValueError:same=False
                         if same:db.execute('UPDATE parties SET whatsapp_opt_in=0,whatsapp_marketing_opt_in=0 WHERE id=?',(p['id'],))
-                    db.execute("UPDATE notifications SET status='cancelled',detail='Recipient requested STOP.' WHERE phone=? AND status IN ('queued','retry')",(phone,))
+                    db.execute("UPDATE notifications SET status='cancelled',detail='Recipient requested STOP.' WHERE phone=? AND status IN ('queued','retry','blocked')",(phone,))
                     db.execute("UPDATE internal_contacts SET opt_in=0 WHERE phone=?",(phone,))
                     db.execute('INSERT INTO whatsapp_inbound VALUES(?,?)',(mid,dt.datetime.now(dt.timezone.utc).isoformat()))
                     shop.audit(db,'whatsapp_opt_out',{'phone':phone})

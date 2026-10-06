@@ -93,7 +93,7 @@ class ConnectionTests(unittest.TestCase):
   with a.connect() as db:r=db.execute('SELECT * FROM sync_events ORDER BY date DESC LIMIT 1').fetchone();device=a.settings(db)['device_id'];business=a.settings(db)['cloud_business_id']
   event=dict(version=1,id=r['id'],date=r['date'],device=device,payload=json.loads(r['payload']))
   row=dict(a.state()['products'][0]);row.pop('stock');row['price']=-1;event['payload']['masters']['products']=[row]
-  reply=self.web.hub.exchange(credential(a)['token'],dict(business_id=business,events=[event],cursor=0,protocol=3))
+  reply=self.web.hub.exchange(credential(a)['token'],dict(business_id=business,events=[event],cursor=0,protocol=4))
   self.assertTrue(reply['errors']);self.assertEqual(self.quantity(self.web.shop),20)
 
  def test_catalogue_settings_recipes_transfers_and_adjustments_from_cafe_node(self):

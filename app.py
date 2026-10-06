@@ -153,6 +153,8 @@ class Shop:
             result['notifications'] = [dict(r) for r in db.execute('SELECT * FROM notifications ORDER BY created DESC LIMIT 100')]
             from media_catalogue import state as media_state
             result.update(media_state(db))
+            from whatsapp_orders import state as order_state
+            result.update(order_state(db))
             result['campaigns'] = [dict(r) for r in db.execute('SELECT * FROM whatsapp_campaigns ORDER BY created DESC LIMIT 100')]
             result['whatsapp_templates'] = [dict(r) for r in db.execute('SELECT * FROM whatsapp_templates ORDER BY name,language')]
             from outreach import webhook_configured
@@ -204,6 +206,9 @@ class Shop:
             return self.backup()
         if action == 'sync':
             return self.sync()
+        if action in ('commerce_settings','commerce_check','commerce_product','trade_order_status','trade_order_reprice'):
+            from whatsapp_orders import act
+            return act(self,action,data)
         if action in ('media_upload','catalogue_product','catalogue_settings','catalogue_order_status'):
             from media_catalogue import act
             return act(self,action,data)
@@ -498,6 +503,8 @@ class Shop:
     def queue_synced_updates(self, db, event):
         """A configured hub sender also handles business actions arriving from offline PCs."""
         payload=event['payload'];eid=event['id']
+        from whatsapp_orders import notify
+        for row in payload['masters'].get('trade_orders',[]):notify(db,self,row)
         for row in payload['masters'].get('documents',[]):
             if row.get('reversed'):
                 self.queue_updates(db,'reverse',{'id':row['id']},{},eid+':'+row['id'])
@@ -577,12 +584,12 @@ class Shop:
 
     def capture(self, db):
         return {t:[dict(r) for r in db.execute('SELECT * FROM '+t)] for t in
-                ('products','parties','recipes','stocks','documents','lines','movements','payments','expenses','settings','devices','allocations')}
+                ('products','parties','recipes','stocks','documents','lines','movements','payments','expenses','settings','devices','allocations','commerce_products','trade_orders')}
 
     def record_event(self, db, before):
         after = self.capture(db)
         payload = {'masters':{},'append':{},'deltas':{'stocks':[],'parties':[],'allocations':[]},'settings':[],'recipes':[]}
-        for table in ('products','parties','documents','devices'):
+        for table in ('products','parties','documents','devices','commerce_products','trade_orders'):
             old = {r['id']:r for r in before[table]}
             changed = []
             for r in after[table]:
@@ -650,8 +657,12 @@ class Shop:
             raise ValueError('Two main PCs were configured. Pair joining PCs with the existing business instead of creating another shop.')
         if not unified and admin and event['device'] != admin and (payload['masters'].get('products') or payload['recipes'] or payload['settings']):
             raise ValueError('Only the main PC may change catalogue, recipes or business settings.')
-        for table in ('products','parties','documents','devices'):
+        for table in ('products','parties','documents','devices','commerce_products','trade_orders'):
             for row in payload['masters'].get(table,[]):
+                if table=='trade_orders':
+                    old=db.execute('SELECT invoice_id FROM trade_orders WHERE id=?',(row['id'],)).fetchone()
+                    if old and old['invoice_id'] and old['invoice_id']!=row['invoice_id']:
+                        raise ValueError('Order already invoiced on another node. Review this sync conflict before retrying.')
                 if table=='documents':
                     old=db.execute('SELECT * FROM documents WHERE id=?',(row['id'],)).fetchone()
                     if old:
@@ -751,7 +762,7 @@ class Shop:
                 target = folder/(event['id']+'.json')
                 if not target.exists():
                     temp = folder/(event['id']+'.tmp')
-                    temp.write_text(json.dumps({'version':1,'id':event['id'],'date':event['date'],'device':event['device'],'payload':json.loads(event['payload'])}),encoding='utf-8')
+                    temp.write_text(json.dumps({'version':2,'id':event['id'],'date':event['date'],'device':event['device'],'payload':json.loads(event['payload'])}),encoding='utf-8')
                     temp.replace(target)
             imported = 0
             pending = sorted(folder.glob('*.json'))
@@ -762,7 +773,7 @@ class Shop:
                         if path.stat().st_size > 10000000:
                             raise ValueError('Sync file exceeds size limit.')
                         event = json.loads(path.read_text(encoding='utf-8'))
-                        if event.get('version') != 1 or event.get('id')+'.json' != path.name:
+                        if event.get('version') not in (1,2) or event.get('id')+'.json' != path.name:
                             raise ValueError('Unsupported sync file.')
                         with self.connect() as db:
                             if self.apply_event(db,event):
@@ -785,6 +796,18 @@ class Shop:
         return value
 
     def document(self, db, kind, data):
+        order_id=str(data.get('trade_order_id','')) if kind=='sale' else ''
+        trade_order=None
+        if order_id:
+            trade_order=db.execute('SELECT * FROM trade_orders WHERE id=?',(order_id,)).fetchone()
+            if not trade_order or trade_order['invoice_id'] or trade_order['status'] not in ('confirmed','packing','ready') or json.loads(trade_order['issues']):
+                raise ValueError('Confirm and resolve this unbilled WhatsApp order before invoicing.')
+            expected={}
+            for l in json.loads(trade_order['items']):expected[l['product_id']]=expected.get(l['product_id'],0)+l['quantity']
+            supplied={}
+            for l in data.get('items',[]):supplied[int(l['product_id'])]=supplied.get(int(l['product_id']),0)+number(l['quantity'],True)
+            if supplied!=expected or data.get('location')!=trade_order['location']:
+                raise ValueError('Order items or location differ from the confirmed WhatsApp order.')
         items = data.get('items',[])
         if not items:
             raise ValueError('Add at least one item.')
@@ -840,6 +863,7 @@ class Shop:
         docid = prefix+str(count).zfill(5)
         snapshot = {'shop':{k:settings[k] for k in ('name','address','phone','gstin','state','gst_enabled')},'party':party,'items':[],
                     'location':location,'supply_state':supply_state,'tax_type':'IGST' if interstate else 'CGST + SGST','device_id':settings['device_id']}
+        if order_id:snapshot['trade_order_id']=order_id
         for i,line in enumerate(prepared):
             p,qty = line['p'],line['quantity']
             share = discount-allocated if i == len(prepared)-1 else int(Decimal(discount)*Decimal(line['gross'])/Decimal(gross)) if gross else 0
@@ -889,6 +913,11 @@ class Shop:
                 (docid,)+tuple(item[k] for k in ('product_id','name','quantity','price','total','tax','cost','gst','cess','hsn')))
         if party:
             db.execute('UPDATE parties SET balance=balance+? WHERE id=?',(total-paid,pid))
+        if trade_order:
+            if total!=trade_order['total']:raise ValueError('The order price changed. Review and confirm it again before billing.')
+            db.execute('UPDATE trade_orders SET invoice_id=?,updated=? WHERE id=?',(docid,now(),order_id))
+            from whatsapp_orders import notify
+            notify(db,self,db.execute('SELECT * FROM trade_orders WHERE id=?',(order_id,)).fetchone())
         return {'id':docid}
 
     def reverse(self, db, data):

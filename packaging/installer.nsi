@@ -2,15 +2,15 @@
 !include "x64.nsh"
 Unicode true
 Name "Al Hadiya Traders"
-OutFile "../dist/AlHidayaTraders-Setup-0.6.0.exe"
+OutFile "../dist/AlHidayaTraders-Setup-0.7.0.exe"
 InstallDir "$LOCALAPPDATA\Programs\AlHidayaTraders"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
-VIProductVersion "0.6.0.0"
+VIProductVersion "0.7.0.0"
 VIAddVersionKey "ProductName" "Al Hadiya Traders"
 VIAddVersionKey "FileDescription" "Offline shop manager installer (pilot)"
-VIAddVersionKey "FileVersion" "0.6.0"
-VIAddVersionKey "ProductVersion" "0.6.0"
+VIAddVersionKey "FileVersion" "0.7.0"
+VIAddVersionKey "ProductVersion" "0.7.0"
 VIAddVersionKey "LegalCopyright" "Al Hadiya Traders"
 !define MUI_WELCOMEPAGE_TITLE "Welcome to Al Hadiya Traders"
 !define MUI_WELCOMEPAGE_TEXT "Offline billing, warehouse stock and takeaway cafe management.$\r$\n$\r$\nThis pilot installs for your Windows account. Python is included. Updates back up your database before replacing application files.$\r$\n$\r$\nPlease close shop billing before updating. Test the pilot before using it for live trading."
@@ -45,6 +45,7 @@ installfiles:
   File "../notifications.py"
   File "../outreach.py"
   File "../media_catalogue.py"
+  File "../whatsapp_orders.py"
   File "../cloud_sync.py"
   File "../dist/AlHidayaTraders.exe"
   File "../README.md"
@@ -64,7 +65,7 @@ installfiles:
   CreateShortcut "$SMPROGRAMS\Al Hidaya Traders\Al Hadiya Traders.lnk" "$INSTDIR\AlHidayaTraders.exe"
   CreateShortcut "$DESKTOP\Al Hidaya Traders.lnk" "$INSTDIR\AlHidayaTraders.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "DisplayName" "Al Hadiya Traders"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "DisplayVersion" "0.6.0"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "DisplayVersion" "0.7.0"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "NoRepair" 1
@@ -82,6 +83,7 @@ removefiles:
   Delete "$INSTDIR\notifications.py"
   Delete "$INSTDIR\outreach.py"
   Delete "$INSTDIR\media_catalogue.py"
+  Delete "$INSTDIR\whatsapp_orders.py"
   Delete "$INSTDIR\cloud_sync.py"
   Delete "$INSTDIR\README.md"
   Delete "$INSTDIR\VERSION"

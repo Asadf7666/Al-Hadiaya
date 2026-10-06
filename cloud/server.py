@@ -18,7 +18,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from app import Shop,ROOT
 
 ROLES={'owner','manager','cashier','viewer'}
-MANAGER={'product','party','recipe','purchase','payment','expense','transfer','adjust','reverse','import_products','sale'}
+MANAGER={'product','party','recipe','purchase','payment','expense','transfer','adjust','reverse','import_products','sale','trade_order_status','trade_order_reprice'}
 CASHIER={'sale','party','expense'}
 SETTINGS={'name','address','phone','gstin','state','gst_enabled','invoice_prefix','printer'}
 def password_hash(password,salt=None):
@@ -79,11 +79,12 @@ class Online:
         result['local']=False;result['online']=True;result['web_user']={k:user[k] for k in ('username','name','role','location')}
         s['device_location']=user['location']
         if user['role']!='owner':
-            result['media_assets']=[];result['catalogue_products']=[];result['catalogue_orders']=[];result['internal_contacts']=[];result['notifications']=[];result['campaigns']=[];result['whatsapp_templates']=[];result['whatsapp_webhook_configured']=False;result['whatsapp_token_configured']=False
+            result['whatsapp_sessions']=[];result['commerce_products']=[];result['media_assets']=[];result['catalogue_products']=[];result['catalogue_orders']=[];result['internal_contacts']=[];result['notifications']=[];result['campaigns']=[];result['whatsapp_templates']=[];result['whatsapp_webhook_configured']=False;result['whatsapp_token_configured']=False
             for key in tuple(s):
                 if key.startswith('whatsapp_'):s[key]=False if isinstance(s[key],bool) else ''
             result['devices']=[];result['allocations']=[];result['sync_errors']=[]
         if user['role'] in ('cashier','viewer'):
+            result['trade_orders']=[]
             result['stocks']=[r for r in result['stocks'] if r['location']==user['location']]
             for p in result['products']:
                 p['stock']=sum(r['quantity'] for r in result['stocks'] if r['product_id']==p['id'])
@@ -154,7 +155,7 @@ class Handler(BaseHTTPRequestHandler):
             from outreach import challenge
             try:return self.send(200,challenge(self.online.shop,parse_qs(urlparse(self.path).query)),'text/plain')
             except PermissionError:return self.send(403,{'error':'Webhook verification failed.'})
-        downloads={'/downloads/AlHidayaTraders-Setup-0.6.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.6.0.zip':'application/zip'}
+        downloads={'/downloads/AlHidayaTraders-Setup-0.7.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.7.0.zip':'application/zip'}
         if path in downloads:
             file=ROOT/'dist'/Path(path).name
             if not file.is_file():return self.send(404,{'error':'Download is being prepared.'})
@@ -172,6 +173,11 @@ class Handler(BaseHTTPRequestHandler):
             if user['role']!='owner':return self.send(403,{'error':'Owner permission required.'})
             with self.online.shop.connect() as db:rows=[dict(r) for r in db.execute('SELECT id,username,name,role,location,active FROM web_users')]
             return self.send(200,rows)
+        if path=='/api/commerce-feed':
+            if user['role']!='owner':return self.send(403,{'error':'Owner permission required.'})
+            from whatsapp_orders import feed
+            try:return self.send(200,feed(self.online.shop,self.online.origin),'text/csv; charset=utf-8',{'Content-Disposition':'attachment; filename=al-hadiya-commerce.csv'})
+            except ValueError as e:return self.send(400,{'error':str(e)})
         if path=='/api/backup-download':
             if user['role']!='owner':return self.send(403,{'error':'Owner permission required.'})
             file=Path(self.online.shop.backup(local_only=True)['paths'][0])
@@ -281,11 +287,19 @@ def main():
     if empty and args.demo:online.shop.act('demo',{})
     server=ThreadingHTTPServer(('127.0.0.1',args.port),Handler);server.online=online
     def periodic():
+        last_backup=last_templates=0
         while True:
-            time.sleep(300)
+            time.sleep(10)
             try:
-                online.shop.backup(local_only=True)
-                online.shop.daily_update()
+                if time.time()-last_backup>=300:
+                    online.shop.backup(local_only=True);last_backup=time.time()
+                    online.shop.daily_update()
+                with online.shop.connect() as db:enabled=online.shop.settings(db)['whatsapp_enabled']
+                if enabled and time.time()-last_templates>=600:
+                    from outreach import refresh_templates
+                    try:refresh_templates(online.shop)
+                    except Exception:pass
+                    last_templates=time.time()
                 from notifications import process_outbox
                 process_outbox(online.shop)
             except Exception:pass

@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from notifications import protect
 
-TABLES=('products','parties','devices','stocks','allocations','recipes','documents','lines','movements','payments','expenses')
+TABLES=('products','parties','devices','stocks','allocations','recipes','documents','lines','movements','payments','expenses','commerce_products','trade_orders')
 BUSINESS=('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id','node_mode')
 DDL='''CREATE TABLE IF NOT EXISTS cloud_codes(digest TEXT PRIMARY KEY,expires REAL,location TEXT,percentage INTEGER,used_device TEXT);
 CREATE TABLE IF NOT EXISTS cloud_peers(device_id TEXT PRIMARY KEY,token_hash TEXT,name TEXT,location TEXT,active INTEGER DEFAULT 1,last_contact TEXT);
@@ -74,7 +74,7 @@ class Hub:
             db.execute('INSERT INTO cloud_codes VALUES(?,?,?,?,NULL)',(digest(code),time.time()+600,location,int(percentage)))
             return {'code':code,'expires_minutes':10,'location':location,'percentage':int(percentage)}
     def pair(self,data):
-        if data.get('protocol')!=3:raise ValueError('Install Windows 0.5.0 or newer for full node operations.')
+        if data.get('protocol')!=4:raise ValueError('Install Windows 0.7.0 or newer for full node operations.')
         ident=str(data.get('device_id',''));name=str(data.get('name','')).strip()[:100]
         if not re.fullmatch(r'[0-9a-f]{16}',ident) or not name:raise ValueError('A valid PC identity and name are required.')
         code=str(data.get('code',''));key=digest('alhidaya-device:'+code+':'+ident)
@@ -104,7 +104,7 @@ class Hub:
         if event.get('version')!=1 or event.get('device')!=ident or not re.fullmatch(r'[0-9]{20}-'+ident+r'-[0-9a-f]{8}',event.get('id','')):raise ValueError('Invalid event identity.')
         p=event['payload']
         if set(p)-{'masters','append','deltas','settings','recipes'}:raise ValueError('Unknown event content.')
-        if set(p['masters'])-{'products','parties','devices','documents'} or set(p['append'])-{'lines','movements','payments','expenses'} or set(p['deltas'])-{'stocks','parties','allocations'}:raise ValueError('Unknown synced table.')
+        if set(p['masters'])-{'products','parties','devices','documents','commerce_products','trade_orders'} or set(p['append'])-{'lines','movements','payments','expenses'} or set(p['deltas'])-{'stocks','parties','allocations'}:raise ValueError('Unknown synced table.')
         for row in p['masters'].get('devices',[]):
             if row['id']!=ident or row['location'] not in ('Warehouse','Outlet'):raise ValueError('Only this node’s identity may be updated.')
         for row in p['settings']:
@@ -121,6 +121,21 @@ class Hub:
             if row['kind'] not in ('customer','supplier') or type(row['credit_limit']) is not int or row['credit_limit']<0:raise ValueError('Invalid customer or supplier.')
             old=db.execute('SELECT kind FROM parties WHERE id=?',(row['id'],)).fetchone()
             if old and old['kind']!=row['kind']:raise ValueError('A customer or supplier cannot change type.')
+        for table in ('commerce_products','trade_orders'):
+            for row in p['masters'].get(table,[]):
+                permitted={r[1] for r in db.execute('PRAGMA table_info('+table+')')}
+                if set(row)!=permitted:raise ValueError('Invalid synced order fields.')
+                if table=='trade_orders':
+                    from whatsapp_orders import STATUSES
+                    if row['status'] not in STATUSES or row['location']!='Warehouse' or type(row['total']) is not int or row['total']<0 or row['contact_allowed'] not in (0,1):raise ValueError('Invalid trading order.')
+                    if row['id']!='WA-'+hashlib.sha256(row['source_id'].encode()).hexdigest()[:12].upper():raise ValueError('Invalid WhatsApp order identity.')
+                    items=json.loads(row['items'])
+                    if not 1<=len(items)<=30 or any(type(l['quantity']) is not int or l['quantity']<1 or type(l['price']) is not int or l['price']<0 for l in items):raise ValueError('Invalid order lines.')
+                    if sum(l['quantity']*l['price'] for l in items)!=row['total']:raise ValueError('Order total differs from lines.')
+                    if row['invoice_id']:
+                        doc=next((d for d in p['masters'].get('documents',[]) if d['id']==row['invoice_id']),None) or db.execute('SELECT * FROM documents WHERE id=?',(row['invoice_id'],)).fetchone()
+                        if not doc or doc['kind']!='sale' or doc['total']!=row['total'] or doc['location']!='Warehouse' or json.loads(doc['snapshot']).get('trade_order_id')!=row['id']:raise ValueError('Order must reference a valid matching sale invoice.')
+                elif type(row['units']) is not int or not 1<=row['units']<=1000 or row['price_tier'] not in ('retail','wholesale') or row['active'] not in (0,1):raise ValueError('Invalid catalogue mapping.')
         documents={};ledger={}
         for row in p['masters'].get('documents',[]):
             documents[row['id']]=row
@@ -170,7 +185,7 @@ class Hub:
         for row in p['append'].get('expenses',[]):
             if type(row['amount']) is not int or row['amount']<=0 or row['method'] not in ('Cash','UPI','Card','Bank'):raise ValueError('Invalid expense.')
     def exchange(self,token,data):
-        if data.get('protocol')!=3:raise ValueError('Update Windows to 0.5.0 before syncing; saved records are preserved.')
+        if data.get('protocol')!=4:raise ValueError('Update Windows to 0.7.0 before syncing; saved records are preserved.')
         events=data.get('events',[])
         if not isinstance(events,list) or len(events)>50:raise ValueError('Sync up to 50 events per request.')
         accepted=[];errors=[]
@@ -212,10 +227,12 @@ def _pair_desktop(shop,data):
         ident=s['device_id'];name=str(data.get('name') or s['device_name'] or 'Offline till').strip()
     # Retain the existing records before any network request or replacement.
     shop.backup(local_only=True)
-    reply=request(url,'/api/device-pair',{'device_id':ident,'name':name,'code':str(data.get('code','')),'protocol':3})
+    reply=request(url,'/api/device-pair',{'device_id':ident,'name':name,'code':str(data.get('code','')),'protocol':4})
     state=reply['snapshot']
     with shop.lock,shop.connect() as db:
         db.execute('DELETE FROM notifications')
+        db.execute('DELETE FROM catalogue_products')
+        db.execute('DELETE FROM catalogue_orders')
         for t in reversed(TABLES):db.execute('DELETE FROM '+t)
         for t in TABLES:
             allowed={r[1] for r in db.execute('PRAGMA table_info('+t+')')}
@@ -240,7 +257,7 @@ def _sync_desktop(shop):
         if not key.get('token'):raise ValueError('This PC has no connection credential. Review pairing before billing.')
         rows=db.execute('SELECT * FROM sync_events WHERE id NOT IN (SELECT event_id FROM cloud_sent) ORDER BY date,id LIMIT 50').fetchall()
         events=[{'version':1,'id':r['id'],'device':r['device'],'date':r['date'],'payload':json.loads(r['payload'])} for r in rows]
-    reply=request(s['cloud_url'],'/api/device-sync',{'business_id':s['cloud_business_id'],'events':events,'cursor':s.get('cloud_cursor',0),'protocol':3},key['token'])
+    reply=request(s['cloud_url'],'/api/device-sync',{'business_id':s['cloud_business_id'],'events':events,'cursor':s.get('cloud_cursor',0),'protocol':4},key['token'])
     if reply['business_id']!=s['cloud_business_id']:raise ValueError('Server business identity changed. No records were imported.')
     with shop.lock,shop.connect() as db:
         db.executemany('INSERT OR IGNORE INTO cloud_sent VALUES(?)',[(eid,) for eid in reply['accepted']])
@@ -274,7 +291,7 @@ def change_server(shop,data):
     with shop.cloud_lock,shop.lock:
         with shop.connect() as db:s=shop.settings(db);key=credential(shop)
         if not s.get('cloud_url') or not key.get('token'):raise ValueError('Pair this node first.')
-        reply=request(url,'/api/device-sync',{'business_id':s['cloud_business_id'],'events':[],'cursor':s.get('cloud_cursor',0),'protocol':3},key['token'])
+        reply=request(url,'/api/device-sync',{'business_id':s['cloud_business_id'],'events':[],'cursor':s.get('cloud_cursor',0),'protocol':4},key['token'])
         if reply['business_id']!=s['cloud_business_id']:raise ValueError('This address belongs to another business.')
         with shop.connect() as db:db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(url),'cloud_url'))
     return {'message':'Server address verified and updated. Existing records and pending transactions are preserved.'}
