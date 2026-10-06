@@ -1,19 +1,19 @@
-# Al Hidaya Traders — Shop Manager 0.4.0
+# Al Hidaya Traders — Shop Manager 0.5.0
 
 An owned Windows and web shop manager for an Indian trading warehouse/retail counter and a takeaway café. Every paired PC has all business functions. Warehouse and Outlet identify transaction locations, not device permissions or separate applications. Internet is not needed for local Windows operations. The browser website requires a connection to its server.
 
 ## Install or update Windows
 
-1. Run `AlHidayaTraders-Setup-0.4.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
+1. Run `AlHidayaTraders-Setup-0.5.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
 2. Open the app from its desktop or Start Menu shortcut. The launcher serves the interface at `127.0.0.1:8765` and must remain open.
 3. Choose the default transaction location in the header or Settings. Every node can work with both locations, receive purchases, record payments, manage stock and products, define recipes, issue credit bills and change business/GST details.
-4. Confirm real prices, stock, pack quantities, barcodes and tax classifications before live trading. Karnataka defaults to state code 29. The installer is unsigned and remains a pilot; physical printer/scanner testing and the 0.4.0 installer execution on Windows 10/11 have not been verified here.
+4. Confirm real prices, stock, pack quantities, barcodes and tax classifications before live trading. Karnataka defaults to state code 29. The installer is unsigned and remains a pilot; physical printer/scanner testing and the 0.5.0 installer execution on Windows 10/11 have not been verified here.
 
 ## Connect a node to the online business
 
 1. As owner in the online app, open Account & staff → Connect a Windows PC. Choose its default location and generate a one-time code. The code expires after ten minutes and binds to one identity; it does not assign a restricted device role or stock quota.
 2. On an empty Windows app or one containing only disposable samples, open Settings → Connect to online business. Enter the server HTTPS origin, code and a PC name. The app backs up existing local records, then adopts the server's shared records. This join flow does not merge real historical databases.
-3. On an already paired node, upgrade in place and click Sync now. The 0.4.0 sync protocol requires every connected Windows installation to upgrade; older apps retain their local records but must update before exchange.
+3. On an already paired node, upgrade in place and click Sync now. The 0.5.0 sync protocol requires every connected Windows installation to upgrade; older apps retain their local records but must update before exchange.
 4. If the same server's IP/domain changes, use Settings → Update server address. This verifies the existing credential and business identity at the new HTTPS origin, and preserves records and pending operations. This does not migrate to a new server/business.
 5. Exchange runs every 30 seconds while the launcher is open. Offline changes stay in the local database and upload on reconnection. The online server also relays changes between PCs. Repeated uploads are idempotent.
 
@@ -51,9 +51,16 @@ The starter catalogue is a collection of **templates**, not a complete or verifi
 
 Profiles retain mobile, email, address, GSTIN, notes, retail/wholesale preference, credit limit, opt-in and ledger history. Café walk-in profiles are optional; mobile lookup is available. Supplier profiles, credit sales and payments work on every node, including offline.
 
-WhatsApp configuration and queue controls are available on each node. Automation starts disabled and requires the official Meta Cloud API sender ID, supported Graph API version, token, approved language/templates and recipient opt-in. The WhatsApp Business mobile app subscription alone does not provide the API token. Templates use three body parameters: invoice = customer/name, invoice number, amount; payment = name, amount, note; internal = business, update type, summary. Internal updates cover low stock, purchases, transfers and daily summaries. Group sending, PDF attachment delivery and delivery/read webhooks are not implemented.
+WhatsApp setup, recipients, outbox controls and owner-approved customer campaigns are available on every node. Use one active sender for the business, preferably the hosted app. The hub now queues receipts and internal updates from transactions that arrive from offline PCs after sync. A working Meta sender, API token, Business Account ID and approved templates are required. Configure the sender in WhatsApp updates. Windows DPAPI protects secrets for the current Windows account; Linux stores them in files with mode 0600. Secrets are excluded from sync, database exports and database backups.
 
-Configure one active notification sender for the business to avoid separate nodes sending duplicate summaries. Sender tokens, recipient configuration and outboxes are local and do not replicate. Windows DPAPI protects tokens for the current account; tokens are excluded from database backups and sync. Internet is needed to send. API accepted is not delivered/read. Interrupted/lost responses become uncertain and are not automatically retried. No actual WhatsApp messages have been sent during testing.
+Customer receipts and promotional offers have separate opt-in fields in the customer profile. Promotional consent and its recorded date sync with customer profiles. Owners can draft a retail/wholesale/all opted-in customer campaign, preview the message and audience, and approve or schedule it. Every campaign requires approval; a draft sends nothing. Sending checks consent again and deduplicates normalized phone numbers within the campaign. Campaign cancellation stops messages that have not started sending. Scheduling requires the active sender to be running and online; the hosted worker checks every five minutes, desktop every thirty seconds. Meta template status must be refreshed before approving a campaign if its cached check is over 24 hours old.
+
+Internal alert options cover low stock, purchases, transfers, sales, payments, expenses, invoice reversals and daily sales summaries. Notification scheduling defaults to Asia/Kolkata, independently of the server timezone. Template JSON for invoice, payment, internal and offer messages is in `whatsapp/templates.json`. All four use three body text parameters. Meta must approve them. The mobile WhatsApp Business app subscription does not provide Cloud API access.
+
+The hosted `/webhooks/whatsapp` endpoint verifies subscription challenges and Meta's SHA-256 signature using protected webhook credentials. It records sent/delivered/read/failed statuses and processes STOP, UNSUBSCRIBE, CANCEL and OPT OUT replies without sending a response. Opt-outs sync to the PCs. Set up the app secret and verification token through WhatsApp updates, then subscribe the messages field in Meta. The app includes public `/privacy` and `/data-deletion` pages; review and complete business contact details before production use. See `whatsapp/SETUP.md` for remaining Meta steps.
+
+Outboxes, campaigns, internal recipient lists and sender credentials are local to their sender; they do not replicate. Use the hosted sender to track webhook delivery for the messages it sends. Do not enable multiple independent senders for the same alerts. API accepted is distinct from delivered/read. Uncertain requests are never automatically retried. This implementation does not create or post to WhatsApp Channels or app broadcast lists; outreach sends individual template messages. Test-number access is limited to Meta-verified recipients, and production requires your business number and credentials. One owner-authorized Hello World message was delivered in the live Meta test; campaign tests use mocks and send no outreach.
+
 
 ## Backups, closing and updates
 

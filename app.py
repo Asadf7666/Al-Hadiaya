@@ -104,7 +104,7 @@ class Shop:
                         'cloud_url':'','cloud_business_id':'','cloud_cursor':0,'node_mode':'unified',
                         'whatsapp_enabled':False,'whatsapp_phone_id':'','whatsapp_api_version':'','whatsapp_language':'en',
                         'whatsapp_invoice_template':'','whatsapp_payment_template':'','whatsapp_internal_template':'',
-                        'whatsapp_daily_time':'','whatsapp_low_stock':True,'whatsapp_transfers':True,'whatsapp_purchases':True}
+                        'whatsapp_waba_id':'','whatsapp_timezone':'Asia/Kolkata','whatsapp_daily_time':'','whatsapp_low_stock':True,'whatsapp_transfers':True,'whatsapp_purchases':True,'whatsapp_sales':False,'whatsapp_payments':False,'whatsapp_expenses':False,'whatsapp_reversals':True}
             for k,v in defaults.items():
                 db.execute('INSERT OR IGNORE INTO settings VALUES(?,?)', (k,json.dumps(v)))
             for table in ('documents','movements'):
@@ -117,9 +117,11 @@ class Shop:
             for key,kind,default in [('brand','TEXT',"''"),('size','TEXT',"''"),('packaging','TEXT',"''"),('mrp','INTEGER','0'),('wholesale_price','INTEGER','0')]:
                 if key not in {r[1] for r in db.execute('PRAGMA table_info(products)')}:
                     db.execute('ALTER TABLE products ADD COLUMN '+key+' '+kind+' NOT NULL DEFAULT '+default)
-            for key,kind,default in [('email','TEXT',"''"),('notes','TEXT',"''"),('price_tier','TEXT',"'retail'"),('credit_limit','INTEGER','0'),('whatsapp_opt_in','INTEGER','0')]:
+            for key,kind,default in [('email','TEXT',"''"),('notes','TEXT',"''"),('price_tier','TEXT',"'retail'"),('credit_limit','INTEGER','0'),('whatsapp_opt_in','INTEGER','0'),('whatsapp_marketing_opt_in','INTEGER','0'),('whatsapp_consent_date','TEXT',"''")]:
                 if key not in {r[1] for r in db.execute('PRAGMA table_info(parties)')}:
                     db.execute('ALTER TABLE parties ADD COLUMN '+key+' '+kind+' NOT NULL DEFAULT '+default)
+            from outreach import migrate
+            migrate(db)
             db.execute("UPDATE notifications SET status='uncertain',detail='App restarted during a send. Check Meta before trying again.' WHERE status='sending'")
             db.execute("CREATE UNIQUE INDEX IF NOT EXISTS barcode_unique ON products(barcode) WHERE barcode<>''")
             for p in db.execute('SELECT id,stock FROM products'):
@@ -149,6 +151,10 @@ class Shop:
                 doc['snapshot'] = json.loads(doc['snapshot'])
             result['local'] = True
             result['notifications'] = [dict(r) for r in db.execute('SELECT * FROM notifications ORDER BY created DESC LIMIT 100')]
+            result['campaigns'] = [dict(r) for r in db.execute('SELECT * FROM whatsapp_campaigns ORDER BY created DESC LIMIT 100')]
+            result['whatsapp_templates'] = [dict(r) for r in db.execute('SELECT * FROM whatsapp_templates ORDER BY name,language')]
+            from outreach import webhook_configured
+            result['whatsapp_webhook_configured'] = webhook_configured(self.folder)
             result['internal_contacts'] = [dict(r) for r in db.execute('SELECT * FROM internal_contacts ORDER BY name')]
             from notifications import token_file
             result['whatsapp_token_configured'] = token_file(self.folder).exists()
@@ -196,6 +202,9 @@ class Shop:
             return self.backup()
         if action == 'sync':
             return self.sync()
+        if action in ('campaign_create','campaign_approve','campaign_cancel','whatsapp_templates','whatsapp_webhook'):
+            from outreach import act
+            return act(self,action,data)
         if action == 'whatsapp_send':
             from notifications import process_outbox
             return process_outbox(self)
@@ -257,7 +266,14 @@ class Shop:
                 if opted_in:
                     from notifications import whatsapp_number
                     whatsapp_number(data.get('phone'))
-                db.execute('UPDATE parties SET whatsapp_opt_in=? WHERE id=?',(int(opted_in),pid))
+                marketing = data.get('whatsapp_marketing_opt_in') in (True,1,'1','on','true')
+                if marketing:
+                    from notifications import whatsapp_number
+                    whatsapp_number(data.get('phone'))
+                consent_date = existing['whatsapp_consent_date'] if existing else ''
+                if marketing and (not existing or not existing['whatsapp_marketing_opt_in'] or existing['phone']!=str(data.get('phone',''))):
+                    consent_date = now()
+                db.execute('UPDATE parties SET whatsapp_opt_in=?,whatsapp_marketing_opt_in=?,whatsapp_consent_date=? WHERE id=?',(int(opted_in),int(marketing),consent_date,pid))
                 result = {'id':pid}
             elif action == 'recipe':
                 pid = int(data['product_id'])
@@ -340,14 +356,17 @@ class Shop:
             elif action == 'whatsapp_settings':
                 import re
                 enabled = bool(data.get('whatsapp_enabled'))
-                for key in ('whatsapp_phone_id','whatsapp_api_version','whatsapp_language','whatsapp_invoice_template','whatsapp_payment_template','whatsapp_internal_template','whatsapp_daily_time'):
-                    value = str(data.get(key,'')).strip()
+                for key in ('whatsapp_phone_id','whatsapp_api_version','whatsapp_language','whatsapp_invoice_template','whatsapp_payment_template','whatsapp_internal_template','whatsapp_daily_time','whatsapp_waba_id','whatsapp_timezone'):
+                    value = str(data.get(key,self.settings(db).get(key,''))).strip()
                     if key in ('whatsapp_invoice_template','whatsapp_payment_template','whatsapp_internal_template') and value and not re.fullmatch(r'[a-z0-9_]{1,512}',value):
                         raise ValueError('Template names must match your approved WhatsApp templates.')
+                    if key == 'whatsapp_timezone':
+                        if value not in ('Asia/Kolkata','UTC'):raise ValueError('Choose Asia/Kolkata or UTC for notification scheduling.')
+                    if key == 'whatsapp_waba_id' and value and not re.fullmatch(r'[0-9]+',value):raise ValueError('Enter a numeric WhatsApp Business Account ID.')
                     if key == 'whatsapp_daily_time' and value:
                         dt.time.fromisoformat(value)
                     db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(value),key))
-                for key in ('whatsapp_enabled','whatsapp_low_stock','whatsapp_transfers','whatsapp_purchases'):
+                for key in ('whatsapp_enabled','whatsapp_low_stock','whatsapp_transfers','whatsapp_purchases','whatsapp_sales','whatsapp_payments','whatsapp_expenses','whatsapp_reversals'):
                     db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(bool(data.get(key))),key))
                 if enabled:
                     configured = self.settings(db)
@@ -451,6 +470,15 @@ class Shop:
         if action == 'purchase' and settings['whatsapp_purchases']:
             doc=db.execute('SELECT * FROM documents WHERE id=?',(result.get('id'),)).fetchone()
             summary=f"Purchase {doc['id']}: INR {doc['total']/100:.2f}, received at {doc['location']}."
+        if action == 'sale' and settings.get('whatsapp_sales'):
+            doc=db.execute('SELECT * FROM documents WHERE id=?',(result.get('id'),)).fetchone()
+            summary=f"Sale {doc['id']}: INR {doc['total']/100:.2f}, at {doc['location']}."
+        if action == 'payment' and settings.get('whatsapp_payments'):
+            summary=f"Payment INR {money(data['amount'])/100:.2f}: {data.get('note') or 'Payment recorded'}."
+        if action == 'expense' and settings.get('whatsapp_expenses'):
+            summary=f"Expense INR {money(data['amount'])/100:.2f}: {data.get('name','')}."
+        if action == 'reverse' and settings.get('whatsapp_reversals'):
+            summary=f"Invoice {data.get('id','')} was reversed. {data.get('reason','')}"
         if summary:
             for recipient in db.execute('SELECT * FROM internal_contacts WHERE opt_in=1'):
                 self.notification(db,'internal:'+event_id+':'+str(recipient['id']),'internal',recipient['phone'],settings['whatsapp_internal_template'],
@@ -459,18 +487,39 @@ class Shop:
             for p in db.execute("SELECT * FROM products WHERE kind<>'recipe' AND stock<=minimum AND (price>0 OR cost>0)"):
                 summary=f"{p['name']}: {p['stock']:g} {p['unit']} remaining across locations (as of last sync). Reorder threshold {p['minimum']:g}."
                 for recipient in db.execute('SELECT * FROM internal_contacts WHERE opt_in=1'):
-                    self.notification(db,f"low-stock:{dt.date.today()}:{p['id']}:{recipient['id']}",'low_stock',recipient['phone'],settings['whatsapp_internal_template'],
+                    self.notification(db,f"low-stock:{__import__('outreach').business_now(settings).date()}:{p['id']}:{recipient['id']}",'low_stock',recipient['phone'],settings['whatsapp_internal_template'],
                                       [settings['name'],'Low stock',summary],internal_id=recipient['id'])
+
+    def queue_synced_updates(self, db, event):
+        """A configured hub sender also handles business actions arriving from offline PCs."""
+        payload=event['payload'];eid=event['id']
+        for row in payload['masters'].get('documents',[]):
+            if row.get('reversed'):
+                self.queue_updates(db,'reverse',{'id':row['id']},{},eid+':'+row['id'])
+            else:
+                self.queue_updates(db,row['kind'],{}, {'id':row['id']},eid+':'+row['id'])
+        for i,row in enumerate(payload['append'].get('payments',[])):
+            self.queue_updates(db,'payment',{'party_id':row['party_id'],'amount':row['amount']/100,'note':row['note']},{},eid+':payment:'+str(i))
+        for i,row in enumerate(payload['append'].get('expenses',[])):
+            self.queue_updates(db,'expense',{'amount':row['amount']/100,'name':row['name']},{},eid+':expense:'+str(i))
+        moves=payload['append'].get('movements',[])
+        for row in moves:
+            if row['reference'].startswith('TR-') and row['quantity']<0:
+                target=next((r for r in moves if r['reference']==row['reference'] and r['product_id']==row['product_id'] and r['quantity']>0),None)
+                if target:self.queue_updates(db,'transfer',{'product_id':row['product_id'],'quantity':-row['quantity'],'source':row['location'],'target':target['location']},{'id':row['reference']},eid+':'+row['reference'])
+        self.queue_updates(db,'sync',{}, {},eid)
 
     def daily_update(self):
         with self.lock,self.connect() as db:
             settings=self.settings(db)
             if not settings['whatsapp_enabled'] or not settings['whatsapp_daily_time']:
                 return
-            if dt.datetime.now().time() < dt.time.fromisoformat(settings['whatsapp_daily_time']):
+            from outreach import business_now
+            local_now=business_now(settings)
+            if local_now.time().replace(tzinfo=None) < dt.time.fromisoformat(settings['whatsapp_daily_time']):
                 return
-            day=dt.date.today().isoformat()
-            docs=list(db.execute("SELECT total,paid FROM documents WHERE kind='sale' AND reversed=0 AND date LIKE ?",(day+'%',)))
+            day=local_now.date().isoformat()
+            docs=[dict(r) for r in db.execute("SELECT total,paid,date FROM documents WHERE kind='sale' AND reversed=0") if dt.datetime.fromisoformat(r['date']).astimezone(local_now.tzinfo).date().isoformat()==day]
             summary=f"{len(docs)} bills; sales INR {sum(d['total'] for d in docs)/100:.2f}; received at billing INR {sum(d['paid'] for d in docs)/100:.2f}. Includes records received by last sync."
             for recipient in db.execute('SELECT * FROM internal_contacts WHERE opt_in=1'):
                 self.notification(db,f"daily:{day}:{recipient['id']}",'daily_summary',recipient['phone'],settings['whatsapp_internal_template'],

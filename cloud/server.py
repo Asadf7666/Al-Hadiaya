@@ -79,7 +79,7 @@ class Online:
         result['local']=False;result['online']=True;result['web_user']={k:user[k] for k in ('username','name','role','location')}
         s['device_location']=user['location']
         if user['role']!='owner':
-            result['internal_contacts']=[];result['notifications']=[];result['whatsapp_token_configured']=False
+            result['internal_contacts']=[];result['notifications']=[];result['campaigns']=[];result['whatsapp_templates']=[];result['whatsapp_webhook_configured']=False;result['whatsapp_token_configured']=False
             for key in tuple(s):
                 if key.startswith('whatsapp_'):s[key]=False if isinstance(s[key],bool) else ''
             result['devices']=[];result['allocations']=[];result['sync_errors']=[]
@@ -135,9 +135,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path=urlparse(self.path).path;user=self.online.session(self.headers.get('Cookie'))
         if path=='/':return self.send(200,(ROOT/'marketing/index.html').read_bytes(),'text/html; charset=utf-8')
+        if path in ('/privacy','/data-deletion'):return self.send(200,(ROOT/'marketing'/(path[1:]+'.html')).read_bytes(),'text/html; charset=utf-8')
         if path=='/login':return self.send(200,LOGIN.format(error=''),'text/html; charset=utf-8')
         if path=='/health':return self.send(200,{'status':'ok'})
-        downloads={'/downloads/AlHidayaTraders-Setup-0.4.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.4.0.zip':'application/zip'}
+        if path=='/webhooks/whatsapp':
+            from outreach import challenge
+            try:return self.send(200,challenge(self.online.shop,parse_qs(urlparse(self.path).query)),'text/plain')
+            except PermissionError:return self.send(403,{'error':'Webhook verification failed.'})
+        downloads={'/downloads/AlHidayaTraders-Setup-0.5.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.5.0.zip':'application/zip'}
         if path in downloads:
             file=ROOT/'dist'/Path(path).name
             if not file.is_file():return self.send(404,{'error':'Download is being prepared.'})
@@ -168,7 +173,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path=urlparse(self.path).path
         device_request=path in ('/api/device-pair','/api/device-sync')
-        if not device_request and self.headers.get('Origin')!=self.online.origin:return self.send(403,{'error':'Origin rejected.'})
+        if not device_request and path!='/webhooks/whatsapp' and self.headers.get('Origin')!=self.online.origin:return self.send(403,{'error':'Origin rejected.'})
         try:
             self.connection.settimeout(15)
             if self.headers.get('Transfer-Encoding','').lower()=='chunked':
@@ -190,6 +195,10 @@ class Handler(BaseHTTPRequestHandler):
                 if size<1 or size>3000000:raise ValueError('Invalid request size.')
                 raw=self.rfile.read(size)
                 if len(raw)!=size:raise ValueError('Incomplete request.')
+            if path=='/webhooks/whatsapp':
+                from outreach import receive
+                if len(raw)>1000000:raise ValueError('Webhook too large.')
+                return self.send(200,receive(self.online.shop,raw,self.headers.get('X-Hub-Signature-256','')))
             if device_request:
                 data=json.loads(raw)
                 if path=='/api/device-pair':return self.send(200,self.online.hub.pair(data))

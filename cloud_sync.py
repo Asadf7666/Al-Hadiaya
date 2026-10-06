@@ -74,7 +74,7 @@ class Hub:
             db.execute('INSERT INTO cloud_codes VALUES(?,?,?,?,NULL)',(digest(code),time.time()+600,location,int(percentage)))
             return {'code':code,'expires_minutes':10,'location':location,'percentage':int(percentage)}
     def pair(self,data):
-        if data.get('protocol')!=2:raise ValueError('Install Windows 0.4.0 or newer for full node operations.')
+        if data.get('protocol')!=3:raise ValueError('Install Windows 0.5.0 or newer for full node operations.')
         ident=str(data.get('device_id',''));name=str(data.get('name','')).strip()[:100]
         if not re.fullmatch(r'[0-9a-f]{16}',ident) or not name:raise ValueError('A valid PC identity and name are required.')
         code=str(data.get('code',''));key=digest('alhidaya-device:'+code+':'+ident)
@@ -170,7 +170,7 @@ class Hub:
         for row in p['append'].get('expenses',[]):
             if type(row['amount']) is not int or row['amount']<=0 or row['method'] not in ('Cash','UPI','Card','Bank'):raise ValueError('Invalid expense.')
     def exchange(self,token,data):
-        if data.get('protocol')!=2:raise ValueError('Update Windows to 0.4.0 before syncing; saved records are preserved.')
+        if data.get('protocol')!=3:raise ValueError('Update Windows to 0.5.0 before syncing; saved records are preserved.')
         events=data.get('events',[])
         if not isinstance(events,list) or len(events)>50:raise ValueError('Sync up to 50 events per request.')
         accepted=[];errors=[]
@@ -185,6 +185,7 @@ class Hub:
                             accepted.append(event['id']);continue
                         self.validate(db,event,peer)
                         self.shop.apply_event(db,event)
+                        self.shop.queue_synced_updates(db,event)
                         db.execute('INSERT INTO sync_events VALUES(?,?,?,?)',(event['id'],event['date'],event['device'],json.dumps(event['payload'])))
                         accepted.append(event['id'])
                 except (ValueError,KeyError,TypeError,sqlite3.IntegrityError) as e:
@@ -211,7 +212,7 @@ def _pair_desktop(shop,data):
         ident=s['device_id'];name=str(data.get('name') or s['device_name'] or 'Offline till').strip()
     # Retain the existing records before any network request or replacement.
     shop.backup(local_only=True)
-    reply=request(url,'/api/device-pair',{'device_id':ident,'name':name,'code':str(data.get('code','')),'protocol':2})
+    reply=request(url,'/api/device-pair',{'device_id':ident,'name':name,'code':str(data.get('code','')),'protocol':3})
     state=reply['snapshot']
     with shop.lock,shop.connect() as db:
         db.execute('DELETE FROM notifications')
@@ -239,7 +240,7 @@ def _sync_desktop(shop):
         if not key.get('token'):raise ValueError('This PC has no connection credential. Review pairing before billing.')
         rows=db.execute('SELECT * FROM sync_events WHERE id NOT IN (SELECT event_id FROM cloud_sent) ORDER BY date,id LIMIT 50').fetchall()
         events=[{'version':1,'id':r['id'],'device':r['device'],'date':r['date'],'payload':json.loads(r['payload'])} for r in rows]
-    reply=request(s['cloud_url'],'/api/device-sync',{'business_id':s['cloud_business_id'],'events':events,'cursor':s.get('cloud_cursor',0),'protocol':2},key['token'])
+    reply=request(s['cloud_url'],'/api/device-sync',{'business_id':s['cloud_business_id'],'events':events,'cursor':s.get('cloud_cursor',0),'protocol':3},key['token'])
     if reply['business_id']!=s['cloud_business_id']:raise ValueError('Server business identity changed. No records were imported.')
     with shop.lock,shop.connect() as db:
         db.executemany('INSERT OR IGNORE INTO cloud_sent VALUES(?)',[(eid,) for eid in reply['accepted']])
@@ -273,7 +274,7 @@ def change_server(shop,data):
     with shop.cloud_lock,shop.lock:
         with shop.connect() as db:s=shop.settings(db);key=credential(shop)
         if not s.get('cloud_url') or not key.get('token'):raise ValueError('Pair this node first.')
-        reply=request(url,'/api/device-sync',{'business_id':s['cloud_business_id'],'events':[],'cursor':s.get('cloud_cursor',0),'protocol':2},key['token'])
+        reply=request(url,'/api/device-sync',{'business_id':s['cloud_business_id'],'events':[],'cursor':s.get('cloud_cursor',0),'protocol':3},key['token'])
         if reply['business_id']!=s['cloud_business_id']:raise ValueError('This address belongs to another business.')
         with shop.connect() as db:db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(url),'cloud_url'))
     return {'message':'Server address verified and updated. Existing records and pending transactions are preserved.'}

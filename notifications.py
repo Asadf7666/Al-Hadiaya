@@ -64,7 +64,7 @@ def deliver(settings, token, row):
     if not re.fullmatch(r'v[0-9]+\.[0-9]+',version) or not re.fullmatch(r'[0-9]+',phone_id):
         raise ValueError('Configure the Graph API version and WhatsApp sender phone-number ID.')
     payload={'messaging_product':'whatsapp','recipient_type':'individual','to':row['phone'],'type':'template',
-             'template':{'name':row['template'],'language':{'code':settings['whatsapp_language']},
+             'template':{'name':row['template'],'language':{'code':row.get('language') or settings['whatsapp_language']},
              'components':[{'type':'body','parameters':[{'type':'text','text':str(v)} for v in json.loads(row['parameters'])]}]}}
     req=urllib.request.Request(f'https://graph.facebook.com/{version}/{phone_id}/messages',
         data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
@@ -89,8 +89,8 @@ def process_outbox(shop):
         token=read_token(shop.folder)
         if not token:
             return {'processed':0,'message':'WhatsApp token is not configured.'}
-        current=dt.datetime.now().astimezone().isoformat(timespec='seconds')
-        rows=[dict(r) for r in db.execute("SELECT * FROM notifications WHERE status IN ('queued','retry') AND next_attempt<=? ORDER BY created LIMIT 10",(current,))]
+        current=dt.datetime.now().astimezone().isoformat()
+        rows=[dict(r) for r in db.execute("SELECT * FROM notifications WHERE status IN ('queued','retry') AND julianday(next_attempt)<=julianday(?) ORDER BY created LIMIT 10",(current,))]
         # Claim before network I/O. A crash cannot automatically resubmit a possibly sent message.
         for row in rows:
             db.execute("UPDATE notifications SET status='sending',attempts=attempts+1 WHERE id=?",(row['id'],))
@@ -102,7 +102,12 @@ def process_outbox(shop):
                     consent=p and p['opt_in']
                 else:
                     p=db.execute('SELECT * FROM parties WHERE id=?',(row['party_id'],)).fetchone()
-                    consent=p and p['whatsapp_opt_in']
+                    consent=p and p['whatsapp_marketing_opt_in' if row['kind']=='marketing' else 'whatsapp_opt_in']
+                if row.get('campaign_id'):
+                    campaign=db.execute('SELECT status FROM whatsapp_campaigns WHERE id=?',(row['campaign_id'],)).fetchone()
+                    consent=consent and campaign and campaign['status']=='approved'
+                current_row=db.execute('SELECT status FROM notifications WHERE id=?',(row['id'],)).fetchone()
+                consent=consent and current_row and current_row['status']=='sending'
                 if not consent or whatsapp_number(p['phone'])!=row['phone']:
                     db.execute("UPDATE notifications SET status='cancelled',detail='Recipient opted out or changed mobile number.' WHERE id=?",(row['id'],))
                     continue
@@ -115,4 +120,7 @@ def process_outbox(shop):
         retry=(dt.datetime.now().astimezone()+dt.timedelta(seconds=delay)).isoformat(timespec='seconds')
         with shop.lock,shop.connect() as db:
             db.execute('UPDATE notifications SET status=?,detail=?,provider_id=?,next_attempt=? WHERE id=?',(status,detail,message_id,retry,row['id']))
+            if message_id:
+                from outreach import apply_receipt
+                apply_receipt(db,message_id)
     return {'processed':len(rows)}
