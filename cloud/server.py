@@ -18,7 +18,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from app import Shop,ROOT
 
 ROLES={'owner','manager','cashier','viewer'}
-MANAGER={'product','party','recipe','purchase','payment','expense','transfer','adjust','reverse','import_products','sale','trade_order_status','trade_order_reprice'}
+MANAGER={'product','party','recipe','purchase','payment','expense','transfer','adjust','reverse','import_products','sale','trade_order_status','trade_order_reprice','inventory_plan','purchase_order_create','purchase_order_status'}
 CASHIER={'sale','party','expense'}
 SETTINGS={'name','address','phone','gstin','state','gst_enabled','invoice_prefix','printer'}
 def password_hash(password,salt=None):
@@ -84,7 +84,7 @@ class Online:
                 if key.startswith('whatsapp_'):s[key]=False if isinstance(s[key],bool) else ''
             result['devices']=[];result['allocations']=[];result['sync_errors']=[]
         if user['role'] in ('cashier','viewer'):
-            result['trade_orders']=[]
+            result['trade_orders']=[];result['purchase_orders']=[];result['inventory_plans']=[];result['inventory_planning']=[];result['stock_alerts']=[]
             result['stocks']=[r for r in result['stocks'] if r['location']==user['location']]
             for p in result['products']:
                 p['stock']=sum(r['quantity'] for r in result['stocks'] if r['product_id']==p['id'])
@@ -139,6 +139,12 @@ class Handler(BaseHTTPRequestHandler):
         if path in ('/privacy','/data-deletion'):return self.send(200,(ROOT/'marketing'/(path[1:]+'.html')).read_bytes(),'text/html; charset=utf-8')
         if path=='/login':return self.send(200,LOGIN.format(error=''),'text/html; charset=utf-8')
         if path=='/catalogue':return self.send(200,(ROOT/'marketing/catalogue.html').read_bytes(),'text/html; charset=utf-8')
+        if path=='/commerce-feed.csv':
+            from whatsapp_orders import feed
+            with self.online.shop.connect() as db:enabled=self.online.shop.settings(db)['whatsapp_commerce_enabled']
+            if not enabled:return self.send(404,{'error':'Commerce feed not published.'})
+            try:return self.send(200,feed(self.online.shop,self.online.origin),'text/csv; charset=utf-8')
+            except ValueError:return self.send(404,{'error':'Commerce feed not published.'})
         if path=='/api/catalogue':
             from media_catalogue import public_state
             return self.send(200,public_state(self.online.shop))
@@ -155,7 +161,7 @@ class Handler(BaseHTTPRequestHandler):
             from outreach import challenge
             try:return self.send(200,challenge(self.online.shop,parse_qs(urlparse(self.path).query)),'text/plain')
             except PermissionError:return self.send(403,{'error':'Webhook verification failed.'})
-        downloads={'/downloads/AlHidayaTraders-Setup-0.7.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.7.0.zip':'application/zip'}
+        downloads={'/downloads/AlHidayaTraders-Setup-0.8.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.8.0.zip':'application/zip'}
         if path in downloads:
             file=ROOT/'dist'/Path(path).name
             if not file.is_file():return self.send(404,{'error':'Download is being prepared.'})

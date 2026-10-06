@@ -104,7 +104,7 @@ class Shop:
                         'cloud_url':'','cloud_business_id':'','cloud_cursor':0,'node_mode':'unified',
                         'whatsapp_enabled':False,'whatsapp_phone_id':'','whatsapp_api_version':'','whatsapp_language':'en',
                         'whatsapp_invoice_template':'','whatsapp_payment_template':'','whatsapp_internal_template':'',
-                        'whatsapp_waba_id':'','whatsapp_timezone':'Asia/Kolkata','whatsapp_daily_time':'','whatsapp_low_stock':True,'whatsapp_transfers':True,'whatsapp_purchases':True,'whatsapp_sales':False,'whatsapp_payments':False,'whatsapp_expenses':False,'whatsapp_reversals':True}
+                        'whatsapp_waba_id':'','whatsapp_timezone':'Asia/Kolkata','whatsapp_daily_time':'','whatsapp_low_stock':True,'whatsapp_transfers':True,'whatsapp_purchases':True,'whatsapp_sales':False,'whatsapp_payments':False,'whatsapp_expenses':False,'whatsapp_reversals':True,'whatsapp_profiles':True,'whatsapp_catalogue':True,'whatsapp_stock':True,'whatsapp_recipes':True,'whatsapp_orders':True}
             for k,v in defaults.items():
                 db.execute('INSERT OR IGNORE INTO settings VALUES(?,?)', (k,json.dumps(v)))
             for table in ('documents','movements'):
@@ -122,6 +122,7 @@ class Shop:
                     db.execute('ALTER TABLE parties ADD COLUMN '+key+' '+kind+' NOT NULL DEFAULT '+default)
             from outreach import migrate
             migrate(db)
+            __import__("procurement").migrate(db)
             db.execute("UPDATE notifications SET status='uncertain',detail='App restarted during a send. Check Meta before trying again.' WHERE status='sending'")
             db.execute("CREATE UNIQUE INDEX IF NOT EXISTS barcode_unique ON products(barcode) WHERE barcode<>''")
             for p in db.execute('SELECT id,stock FROM products'):
@@ -155,6 +156,8 @@ class Shop:
             result.update(media_state(db))
             from whatsapp_orders import state as order_state
             result.update(order_state(db))
+            result.update(__import__('procurement').state(db))
+            result['stock_alerts']=__import__('stock_alerts').alerts(db,self.settings(db))
             result['campaigns'] = [dict(r) for r in db.execute('SELECT * FROM whatsapp_campaigns ORDER BY created DESC LIMIT 100')]
             result['whatsapp_templates'] = [dict(r) for r in db.execute('SELECT * FROM whatsapp_templates ORDER BY name,language')]
             from outreach import webhook_configured
@@ -206,6 +209,8 @@ class Shop:
             return self.backup()
         if action == 'sync':
             return self.sync()
+        if action in ('inventory_plan','purchase_order_create','purchase_order_status'):
+            return __import__('procurement').act(self,action,data)
         if action in ('commerce_settings','commerce_check','commerce_product','trade_order_status','trade_order_reprice'):
             from whatsapp_orders import act
             return act(self,action,data)
@@ -376,8 +381,8 @@ class Shop:
                     if key == 'whatsapp_daily_time' and value:
                         dt.time.fromisoformat(value)
                     db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(value),key))
-                for key in ('whatsapp_enabled','whatsapp_low_stock','whatsapp_transfers','whatsapp_purchases','whatsapp_sales','whatsapp_payments','whatsapp_expenses','whatsapp_reversals'):
-                    db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(bool(data.get(key))),key))
+                for key in ('whatsapp_enabled','whatsapp_low_stock','whatsapp_transfers','whatsapp_purchases','whatsapp_sales','whatsapp_payments','whatsapp_expenses','whatsapp_reversals','whatsapp_profiles','whatsapp_catalogue','whatsapp_stock','whatsapp_recipes','whatsapp_orders'):
+                    db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(bool(data.get(key,self.settings(db).get(key,False)))),key))
                 if enabled:
                     configured = self.settings(db)
                     if not re.fullmatch(r'[0-9]+',configured['whatsapp_phone_id']) or not re.fullmatch(r'v[0-9]+\.[0-9]+',configured['whatsapp_api_version']):
@@ -474,46 +479,38 @@ class Shop:
             if customer and customer['kind']=='customer' and customer['whatsapp_opt_in']:
                 self.notification(db,'payment:'+event_id,'payment',customer['phone'],settings['whatsapp_payment_template'],
                                   [customer['name'],f"INR {money(data['amount'])/100:.2f}",str(data.get('note') or 'Payment received')],party_id=customer['id'])
-        if action == 'transfer' and settings['whatsapp_transfers']:
-            p=db.execute('SELECT name,unit FROM products WHERE id=?',(data['product_id'],)).fetchone()
-            summary=f"{p['name']}: {data['quantity']} {p['unit']}, {data['source']} to {data['target']}. Reference {result.get('id','')}."
-        if action == 'purchase' and settings['whatsapp_purchases']:
-            doc=db.execute('SELECT * FROM documents WHERE id=?',(result.get('id'),)).fetchone()
-            summary=f"Purchase {doc['id']}: INR {doc['total']/100:.2f}, received at {doc['location']}."
-        if action == 'sale' and settings.get('whatsapp_sales'):
-            doc=db.execute('SELECT * FROM documents WHERE id=?',(result.get('id'),)).fetchone()
-            summary=f"Sale {doc['id']}: INR {doc['total']/100:.2f}, at {doc['location']}."
-        if action == 'payment' and settings.get('whatsapp_payments'):
-            summary=f"Payment INR {money(data['amount'])/100:.2f}: {data.get('note') or 'Payment recorded'}."
-        if action == 'expense' and settings.get('whatsapp_expenses'):
-            summary=f"Expense INR {money(data['amount'])/100:.2f}: {data.get('name','')}."
-        if action == 'reverse' and settings.get('whatsapp_reversals'):
-            summary=f"Invoice {data.get('id','')} was reversed. {data.get('reason','')}"
+        from activity_alerts import summary as activity_summary,chunks
+        summary=activity_summary(self,db,action,{**data,'_local':not data.get('_synced')},result,event_id)
         if summary:
+            pages=chunks(summary)
             for recipient in db.execute('SELECT * FROM internal_contacts WHERE opt_in=1'):
-                self.notification(db,'internal:'+event_id+':'+str(recipient['id']),'internal',recipient['phone'],settings['whatsapp_internal_template'],
-                                  [settings['name'],action.title(),summary],internal_id=recipient['id'])
-        if settings['whatsapp_low_stock'] and action in ('sale','adjust','transfer','sync'):
-            for p in db.execute("SELECT * FROM products WHERE kind<>'recipe' AND stock<=minimum AND (price>0 OR cost>0)"):
-                summary=f"{p['name']}: {p['stock']:g} {p['unit']} remaining across locations (as of last sync). Reorder threshold {p['minimum']:g}."
-                for recipient in db.execute('SELECT * FROM internal_contacts WHERE opt_in=1'):
-                    self.notification(db,f"low-stock:{__import__('outreach').business_now(settings).date()}:{p['id']}:{recipient['id']}",'low_stock',recipient['phone'],settings['whatsapp_internal_template'],
-                                      [settings['name'],'Low stock',summary],internal_id=recipient['id'])
+                for i,part in enumerate(pages):
+                    page_label=f" (part {i+1}/{len(pages)})" if len(pages)>1 else ''
+                    self.notification(db,'internal:'+event_id+':'+str(recipient['id'])+':'+str(i),'internal',recipient['phone'],settings['whatsapp_internal_template'],
+                                      [settings['name'],action.title()+page_label,part],internal_id=recipient['id'])
+        if action in ('sale','purchase','product','adjust','transfer','sync','inventory_plan','purchase_order_status','reverse'):
+            __import__('stock_alerts').queue(self,db)
 
     def queue_synced_updates(self, db, event):
         """A configured hub sender also handles business actions arriving from offline PCs."""
         payload=event['payload'];eid=event['id']
         from whatsapp_orders import notify
         for row in payload['masters'].get('trade_orders',[]):notify(db,self,row)
+        for row in payload['masters'].get('purchase_orders',[]):self.queue_updates(db,'purchase_order_status',{'_synced':True},{'id':row['id']},eid+':po:'+row['id'])
+        for row in payload['masters'].get('parties',[]):self.queue_updates(db,'party',{**row,'_synced':True},{'id':row['id']},eid+':profile:'+str(row['id']))
+        if payload['masters'].get('products'):self.queue_updates(db,'import_products',{'_synced':True},{},eid+':catalogue')
+        for recipe in payload.get('recipes',[]):self.queue_updates(db,'recipe',{'product_id':recipe['product_id'],'_synced':True},{},eid+':recipe:'+str(recipe['product_id']))
+        for move in payload['append'].get('movements',[]):
+            if move['reference']=='ADJUST':self.queue_updates(db,'adjust',{'location':move['location'],'note':move['note'],'_synced':True},{},eid+':adjust')
         for row in payload['masters'].get('documents',[]):
             if row.get('reversed'):
                 self.queue_updates(db,'reverse',{'id':row['id']},{},eid+':'+row['id'])
             else:
                 self.queue_updates(db,row['kind'],{}, {'id':row['id']},eid+':'+row['id'])
         for i,row in enumerate(payload['append'].get('payments',[])):
-            self.queue_updates(db,'payment',{'party_id':row['party_id'],'amount':row['amount']/100,'note':row['note']},{},eid+':payment:'+str(i))
+            self.queue_updates(db,'payment',{'party_id':row['party_id'],'amount':row['amount']/100,'note':row['note'],'method':row['method']},{},eid+':payment:'+str(i))
         for i,row in enumerate(payload['append'].get('expenses',[])):
-            self.queue_updates(db,'expense',{'amount':row['amount']/100,'name':row['name']},{},eid+':expense:'+str(i))
+            self.queue_updates(db,'expense',{'amount':row['amount']/100,'name':row['name'],'method':row['method']},{},eid+':expense:'+str(i))
         moves=payload['append'].get('movements',[])
         for row in moves:
             if row['reference'].startswith('TR-') and row['quantity']<0:
@@ -524,6 +521,7 @@ class Shop:
     def daily_update(self):
         with self.lock,self.connect() as db:
             settings=self.settings(db)
+            __import__('stock_alerts').queue(self,db)
             if not settings['whatsapp_enabled'] or not settings['whatsapp_daily_time']:
                 return
             from outreach import business_now
@@ -531,11 +529,13 @@ class Shop:
             if local_now.time().replace(tzinfo=None) < dt.time.fromisoformat(settings['whatsapp_daily_time']):
                 return
             day=local_now.date().isoformat()
-            docs=[dict(r) for r in db.execute("SELECT total,paid,date FROM documents WHERE kind='sale' AND reversed=0") if dt.datetime.fromisoformat(r['date']).astimezone(local_now.tzinfo).date().isoformat()==day]
-            summary=f"{len(docs)} bills; sales INR {sum(d['total'] for d in docs)/100:.2f}; received at billing INR {sum(d['paid'] for d in docs)/100:.2f}. Includes records received by last sync."
+            from activity_alerts import daily,chunks
+            __import__('stock_alerts').queue(self,db)
+            pages=chunks(daily(self,db,local_now))
             for recipient in db.execute('SELECT * FROM internal_contacts WHERE opt_in=1'):
-                self.notification(db,f"daily:{day}:{recipient['id']}",'daily_summary',recipient['phone'],settings['whatsapp_internal_template'],
-                                  [settings['name'],'Daily summary',summary],internal_id=recipient['id'])
+                for i,part in enumerate(pages):
+                    self.notification(db,f"daily:{day}:{recipient['id']}:{i}",'daily_summary',recipient['phone'],settings['whatsapp_internal_template'],
+                                      [settings['name'],f'Daily summary {day} ({i+1}/{len(pages)})',part],internal_id=recipient['id'])
 
     def load_catalog(self, db):
         rows = json.loads((ROOT/'catalog.json').read_text(encoding='utf-8'))
@@ -584,12 +584,12 @@ class Shop:
 
     def capture(self, db):
         return {t:[dict(r) for r in db.execute('SELECT * FROM '+t)] for t in
-                ('products','parties','recipes','stocks','documents','lines','movements','payments','expenses','settings','devices','allocations','commerce_products','trade_orders')}
+                ('products','parties','recipes','stocks','documents','lines','movements','payments','expenses','settings','devices','allocations','commerce_products','trade_orders','inventory_plans','purchase_orders')}
 
     def record_event(self, db, before):
         after = self.capture(db)
         payload = {'masters':{},'append':{},'deltas':{'stocks':[],'parties':[],'allocations':[]},'settings':[],'recipes':[]}
-        for table in ('products','parties','documents','devices','commerce_products','trade_orders'):
+        for table in ('products','parties','documents','devices','commerce_products','trade_orders','inventory_plans','purchase_orders'):
             old = {r['id']:r for r in before[table]}
             changed = []
             for r in after[table]:
@@ -657,7 +657,10 @@ class Shop:
             raise ValueError('Two main PCs were configured. Pair joining PCs with the existing business instead of creating another shop.')
         if not unified and admin and event['device'] != admin and (payload['masters'].get('products') or payload['recipes'] or payload['settings']):
             raise ValueError('Only the main PC may change catalogue, recipes or business settings.')
-        for table in ('products','parties','documents','devices','commerce_products','trade_orders'):
+        __import__('procurement').validate_receipts(payload)
+        for row in payload['masters'].get('purchase_orders',[]):__import__('procurement').validate_change(db,row,payload)
+        for row in payload['masters'].get('inventory_plans',[]):__import__('procurement').validate_plan(row)
+        for table in ('products','parties','documents','devices','commerce_products','trade_orders','inventory_plans','purchase_orders'):
             for row in payload['masters'].get(table,[]):
                 if table=='trade_orders':
                     old=db.execute('SELECT invoice_id FROM trade_orders WHERE id=?',(row['id'],)).fetchone()
@@ -762,7 +765,7 @@ class Shop:
                 target = folder/(event['id']+'.json')
                 if not target.exists():
                     temp = folder/(event['id']+'.tmp')
-                    temp.write_text(json.dumps({'version':2,'id':event['id'],'date':event['date'],'device':event['device'],'payload':json.loads(event['payload'])}),encoding='utf-8')
+                    temp.write_text(json.dumps({'version':3,'id':event['id'],'date':event['date'],'device':event['device'],'payload':json.loads(event['payload'])}),encoding='utf-8')
                     temp.replace(target)
             imported = 0
             pending = sorted(folder.glob('*.json'))
@@ -773,7 +776,7 @@ class Shop:
                         if path.stat().st_size > 10000000:
                             raise ValueError('Sync file exceeds size limit.')
                         event = json.loads(path.read_text(encoding='utf-8'))
-                        if event.get('version') not in (1,2) or event.get('id')+'.json' != path.name:
+                        if event.get('version') not in (1,2,3) or event.get('id')+'.json' != path.name:
                             raise ValueError('Unsupported sync file.')
                         with self.connect() as db:
                             if self.apply_event(db,event):
@@ -808,6 +811,7 @@ class Shop:
             for l in data.get('items',[]):supplied[int(l['product_id'])]=supplied.get(int(l['product_id']),0)+number(l['quantity'],True)
             if supplied!=expected or data.get('location')!=trade_order['location']:
                 raise ValueError('Order items or location differ from the confirmed WhatsApp order.')
+        purchase_order=__import__('procurement').check_receipt(db,data) if kind=='purchase' else None
         items = data.get('items',[])
         if not items:
             raise ValueError('Add at least one item.')
@@ -896,6 +900,7 @@ class Shop:
                 'cess':p['cess'] if settings['gst_enabled'] else 0,'taxable':taxable,'gst_amount':gstamount,'cess_amount':cessamount,
                 'cgst_amount':0 if interstate else gstamount//2,'sgst_amount':0 if interstate else gstamount-gstamount//2,
                 'igst_amount':gstamount if interstate else 0})
+        if purchase_order:snapshot['purchase_order_id']=purchase_order['id']
         paid = money(data.get('paid',total/100))
         if paid > total:
             raise ValueError('Amount received cannot exceed the total. Record change separately.')
@@ -913,6 +918,7 @@ class Shop:
                 (docid,)+tuple(item[k] for k in ('product_id','name','quantity','price','total','tax','cost','gst','cess','hsn')))
         if party:
             db.execute('UPDATE parties SET balance=balance+? WHERE id=?',(total-paid,pid))
+        if purchase_order:__import__('procurement').receive(db,purchase_order,snapshot['items'])
         if trade_order:
             if total!=trade_order['total']:raise ValueError('The order price changed. Review and confirm it again before billing.')
             db.execute('UPDATE trade_orders SET invoice_id=?,updated=? WHERE id=?',(docid,now(),order_id))
@@ -939,6 +945,7 @@ class Shop:
             db.execute('UPDATE parties SET balance=balance-? WHERE id=?',(outstanding,doc['party_id']))
         for m in list(db.execute('SELECT * FROM movements WHERE reference=?',(doc['id'],))):
             self.movement(db,m['product_id'],-m['quantity'],'REV-'+doc['id'],reason,m['location'])
+        if doc['kind']=='purchase':__import__('procurement').reverse(db,doc)
         db.execute('UPDATE documents SET reversed=1 WHERE id=?',(doc['id'],))
         return {'refund':doc['paid'],'method':doc['payment']}
 

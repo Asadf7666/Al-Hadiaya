@@ -29,7 +29,7 @@ def main():
     (ROOT/'dist').mkdir(exist_ok=True)
     subprocess.run([compiler,'launcher.nsi'],cwd=ROOT/'packaging',check=True)
     subprocess.run([compiler,'installer.nsi'],cwd=ROOT/'packaging',check=True)
-    setup=ROOT/'dist'/'AlHidayaTraders-Setup-0.7.0.exe'
+    setup=ROOT/'dist'/'AlHidayaTraders-Setup-0.8.0.exe'
     digest=hashlib.sha256(setup.read_bytes()).hexdigest()
     (setup.parent/'SHA256SUMS.txt').write_text(digest+'  '+setup.name+'\n')
     print('Built:',setup,'\nSHA-256:',digest)

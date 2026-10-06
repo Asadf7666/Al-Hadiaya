@@ -27,3 +27,19 @@ class WebTests(unittest.TestCase):
  def test_rate_limit(self):
   for _ in range(8):self.assertIsNone(self.online.login('owner','wrong','ip'))
   self.assertIsNone(self.online.login('owner','test-owner-password','ip'))
+ def test_public_meta_feed_is_gated_and_staff_cost_data_is_hidden(self):
+  import threading,urllib.request,urllib.error,json
+  self.online.origin='https://example.test'
+  from http.server import ThreadingHTTPServer
+  from cloud.server import Handler
+  server=ThreadingHTTPServer(('127.0.0.1',0),Handler);server.online=self.online
+  threading.Thread(target=server.serve_forever,daemon=True).start();url='http://127.0.0.1:'+str(server.server_port)+'/commerce-feed.csv'
+  try:
+   with self.assertRaises(urllib.error.HTTPError) as error:urllib.request.urlopen(url)
+   self.assertEqual(error.exception.code,404);error.exception.close()
+   with self.online.shop.connect() as db:db.execute("UPDATE settings SET value='true' WHERE key IN ('whatsapp_commerce_enabled','catalogue_enabled')")
+   with urllib.request.urlopen(url) as response:body=response.read().decode()
+   self.assertIn('image_link',body);self.assertNotIn('cost',body)
+   state=self.online.state({'role':'cashier','username':'test','name':'Till','location':'Warehouse'})
+   for key in ('purchase_orders','inventory_planning','inventory_plans','stock_alerts'):self.assertEqual(state[key],[])
+  finally:server.shutdown();server.server_close()

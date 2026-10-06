@@ -11,7 +11,7 @@ class NotificationTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
         self.shop=Shop(Path(self.tmp.name))
-        self.shop.act('whatsapp_settings',{'whatsapp_enabled':True,'whatsapp_phone_id':'123456','whatsapp_api_version':'v99.0','whatsapp_language':'en','whatsapp_internal_template':'internal_update','whatsapp_invoice_template':'invoice_update','whatsapp_low_stock':True,'whatsapp_transfers':True,'whatsapp_purchases':True,'whatsapp_daily_time':'00:00'})
+        self.shop.act('whatsapp_settings',{'whatsapp_profiles':False,'whatsapp_catalogue':False,'whatsapp_stock':False,'whatsapp_recipes':False,'whatsapp_enabled':True,'whatsapp_phone_id':'123456','whatsapp_api_version':'v99.0','whatsapp_language':'en','whatsapp_internal_template':'internal_update','whatsapp_invoice_template':'invoice_update','whatsapp_low_stock':True,'whatsapp_transfers':True,'whatsapp_purchases':True,'whatsapp_daily_time':'00:00'})
         self.shop.act('internal_contact',{'name':'Owner','phone':'9876543210','opt_in':True})
     def tearDown(self):self.tmp.cleanup()
     def test_transfer_and_purchase_queue_internal_updates(self):

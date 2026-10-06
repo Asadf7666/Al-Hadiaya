@@ -75,7 +75,7 @@ def notify(db,shop,row):
  elif row['status']=='new':text+=' We received your cart. Staff will confirm availability and payment; no stock is reserved yet.'
  if row['contact_allowed']:queue(db,shop,'order:'+row['id']+':'+row['updated'],row['phone'],text,row['id'])
  s=shop.settings(db)
- if s['whatsapp_enabled']:
+ if s['whatsapp_enabled'] and s.get('whatsapp_orders',True):
   for staff in db.execute('SELECT * FROM internal_contacts WHERE opt_in=1'):
    shop.notification(db,'trade-internal:'+row['id']+':'+row['updated']+':'+str(staff['id']),'internal',staff['phone'],s['whatsapp_internal_template'],[s['name'],'WhatsApp order',f"{row['id']} · {row['name']} · {row['status']} · INR {row['total']/100:.2f} · Warehouse"],internal_id=staff['id'])
 def inbound(db,shop,message,contacts):
