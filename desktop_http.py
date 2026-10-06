@@ -36,7 +36,7 @@ class DesktopHandler(Base):
    if user['role']!='owner':return self.output(403,{'error':'Owner permission required.'})
    if path=='/api/backup-bundle':return self.output(200,__import__('backup_bundle').bundle(self.shop),'application/zip',{'Content-Disposition':'attachment; filename=AlHadiya-business-backup.zip'})
   if path=='/team.js':return self.output(200,(ROOT/'static/team.js').read_bytes(),'text/javascript')
-  if path=='/':return self.output(200,(ROOT/'static/index.html').read_text().replace('</body>','<script src="/team.js"></script></body>'),'text/html; charset=utf-8')
+  if path=='/':return self.output(200,(ROOT/'static/index.html').read_text(encoding='utf-8').replace('</body>','<script src="/team.js"></script></body>'),'text/html; charset=utf-8')
   return super().do_GET()
  def do_POST(self):
   if not self.valid_host():return self.output(403,{'error':'Local access only.'})

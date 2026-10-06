@@ -2,7 +2,7 @@
 !include "x64.nsh"
 Unicode true
 !ifndef PRODUCT_VERSION
-!define PRODUCT_VERSION "1.0.0"
+!define PRODUCT_VERSION "1.0.1"
 !endif
 Name "Al Hadiya Traders"
 OutFile "../dist/AlHidayaTraders-Setup-${PRODUCT_VERSION}.exe"

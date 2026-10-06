@@ -1,11 +1,11 @@
-# Al Hadiya Traders 1.0.0
+# Al Hadiya Traders 1.0.1
 
 The v1 review build brings warehouse trading/retail, café POS and recipes, customer/supplier profiles, GST invoices, stock planning and procurement together in an owned offline/online business manager.
 
 - Offline owner setup and staff sign-in, consistent permissions, account disabling, session revocation, password recovery and access audits.
 - Retry-safe financial writes and bill-draft recovery, preventing duplicate invoices after interrupted responses.
 - Café menu POS filter, an Open café POS action, pack-entry help, role-aware navigation and mobile controls.
-- Portable database/photo backups without account credentials, guarded restore with rollback, and final server exchange/disconnection.
+- Portable database/photo backups without account credentials; the export is compacted to remove deleted credential fragments. Guarded restore includes rollback and final server exchange/disconnection.
 - Independent background tasks and visible backup/sync/notification health.
 - WhatsApp sender-status checks, approved/fresh templates, consent evidence, opt-outs, paced sends, offer caps, human-support replies and catalogue reviews.
 - Repeatable Windows installer/update checks and versioned GitHub release downloads.

@@ -60,7 +60,7 @@ class Handler(BaseHTTPRequestHandler):
             from outreach import challenge
             try:return self.send(200,challenge(self.online.shop,parse_qs(urlparse(self.path).query)),'text/plain')
             except PermissionError:return self.send(403,{'error':'Webhook verification failed.'})
-        downloads={'/downloads/AlHidayaTraders-Setup-1.0.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-1.0.0.zip':'application/zip'}
+        downloads={'/downloads/AlHidayaTraders-Setup-1.0.1.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-1.0.1.zip':'application/zip'}
         if path in downloads:
             file=ROOT/'dist'/Path(path).name
             if not file.is_file():return self.send(404,{'error':'Download is being prepared.'})
@@ -91,7 +91,7 @@ class Handler(BaseHTTPRequestHandler):
             file=Path(self.online.shop.backup(local_only=True)['paths'][0])
             return self.send(200,file.read_bytes(),'application/vnd.sqlite3')
         if path=='/app':
-            markup=(ROOT/'static/index.html').read_text().replace('Offline billing ready','Online review').replace('Your data stays on this PC','Shared test workspace').replace('↻ Sync transactions','Account & staff').replace('onclick="runSync()"','onclick="navTo(\'staff\')"').replace('Local SQLite storage','Temporary review server').replace('<script src="/app.js"></script>','<script src="/app.js"></script><script src="/cloud-ui.js"></script>')
+            markup=(ROOT/'static/index.html').read_text(encoding='utf-8').replace('Offline billing ready','Online review').replace('Your data stays on this PC','Shared test workspace').replace('↻ Sync transactions','Account & staff').replace('onclick="runSync()"','onclick="navTo(\'staff\')"').replace('Local SQLite storage','Temporary review server').replace('<script src="/app.js"></script>','<script src="/app.js"></script><script src="/cloud-ui.js"></script>')
             return self.send(200,markup,'text/html; charset=utf-8')
         files={'/app.js':ROOT/'static/app.js','/cloud-ui.js':ROOT/'cloud/ui.js'}
         if path in files:return self.send(200,files[path].read_bytes(),'text/javascript')

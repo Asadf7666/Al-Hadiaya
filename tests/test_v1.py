@@ -41,12 +41,15 @@ class V1Tests(unittest.TestCase):
   self.assertTrue(manual.exists());self.assertTrue((folder/'AlHidaya-Auto-20260910-090000-000000.sqlite3').exists());self.assertFalse((folder/'AlHidaya-Auto-20260901-000000-000000.media').exists());self.assertLessEqual(len(list(folder.glob('AlHidaya-Auto-*.sqlite3'))),15)
  def test_backup_bundle_preserves_photos_and_local_accounts(self):
   photo=self.shop.folder/'media'/'example.png';photo.parent.mkdir(exist_ok=True);photo.write_bytes(b'original-photo')
+  with self.shop.connect() as db:account_material=tuple(db.execute('SELECT salt,password_hash FROM web_users').fetchone())
   raw=bundle(self.shop);self.shop.act('adjust',{'product_id':self.pid,'location':'Warehouse','quantity':-50,'note':'Test change'})
   photo.write_bytes(b'changed-photo')
   restore(self.shop,{'confirm':'RESTORE','content':base64.b64encode(raw).decode()})
   self.assertEqual(self.shop.state()['products'][0]['stock'],100);self.assertIsNotNone(self.access.login('owner','owner-test-password','test'))
   self.assertEqual(photo.read_bytes(),b'original-photo')
-  with zipfile.ZipFile(io.BytesIO(raw)) as z:self.assertFalse(any('credential' in n for n in z.namelist()))
+  with zipfile.ZipFile(io.BytesIO(raw)) as z:
+   self.assertFalse(any('credential' in n for n in z.namelist()))
+   for material in account_material:self.assertNotIn(material.encode(),z.read('shop.sqlite3'))
  def test_backup_zip_traversal_rejected_without_changing_stock(self):
   raw=io.BytesIO()
   with zipfile.ZipFile(raw,'w') as z:z.writestr('../escape.txt','bad')

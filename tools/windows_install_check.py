@@ -8,7 +8,7 @@ def main():
  version=(ROOT/'VERSION').read_text().strip();setup=ROOT/'dist'/('AlHidayaTraders-Setup-'+version+'.exe')
  def installer():subprocess.run([str(setup),'/S','/D='+str(install)],env=env,check=True,timeout=240)
  def start():
-  process=subprocess.Popen([str(install/'runtime/python.exe'),str(install/'app.py'),'--no-browser'],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+  process=subprocess.Popen([str(install/'runtime/python.exe'),str(install/'app.py'),'--no-browser'],env=env,stdout=subprocess.DEVNULL,stderr=None)
   for _ in range(100):
    if process.poll() is not None:raise RuntimeError('Installed app exited before serving.')
    try:

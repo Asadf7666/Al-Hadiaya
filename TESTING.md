@@ -1,6 +1,6 @@
 # Verification history
 
-## Version 1.0.0 review build — 6 October 2026
+## Version 1.0.1 review build — 6 October 2026
 
 107 automated Python checks passed in the Linux workspace, including local staff authentication and permissions, request replay after a lost response, verified portable backups and guarded restoration, backup retention, consent evidence, catalogue publication reviews, account/quality pauses, template categories and outbound pacing. Provider calls use fixtures; no live WhatsApp messages were sent during this v1 work.
 

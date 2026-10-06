@@ -12,6 +12,8 @@ def bundle(shop):
    for table in ('web_sessions','web_audit','web_users','cloud_codes','cloud_peers','whatsapp_sender_check'):
     if table in tables:db.execute('DELETE FROM '+table)
    db.commit()
+   # Rebuild pages so deleted account/session material is absent from the archive.
+   db.execute('VACUUM')
   z.writestr('manifest.json',json.dumps({'format':1,'business':'Al Hadiya Traders','credentials_included':False}))
   z.write(portable,'shop.sqlite3')
   media=snapshot.with_suffix('.media')
