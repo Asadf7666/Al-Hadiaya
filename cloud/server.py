@@ -161,7 +161,7 @@ class Handler(BaseHTTPRequestHandler):
             from outreach import challenge
             try:return self.send(200,challenge(self.online.shop,parse_qs(urlparse(self.path).query)),'text/plain')
             except PermissionError:return self.send(403,{'error':'Webhook verification failed.'})
-        downloads={'/downloads/AlHidayaTraders-Setup-0.8.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.8.0.zip':'application/zip'}
+        downloads={'/downloads/AlHidayaTraders-Setup-0.8.1.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.8.1.zip':'application/zip'}
         if path in downloads:
             file=ROOT/'dist'/Path(path).name
             if not file.is_file():return self.send(404,{'error':'Download is being prepared.'})

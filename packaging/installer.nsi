@@ -2,15 +2,15 @@
 !include "x64.nsh"
 Unicode true
 Name "Al Hadiya Traders"
-OutFile "../dist/AlHidayaTraders-Setup-0.8.0.exe"
+OutFile "../dist/AlHidayaTraders-Setup-0.8.1.exe"
 InstallDir "$LOCALAPPDATA\Programs\AlHidayaTraders"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
-VIProductVersion "0.8.0.0"
+VIProductVersion "0.8.1.0"
 VIAddVersionKey "ProductName" "Al Hadiya Traders"
 VIAddVersionKey "FileDescription" "Offline shop manager installer (pilot)"
-VIAddVersionKey "FileVersion" "0.8.0"
-VIAddVersionKey "ProductVersion" "0.8.0"
+VIAddVersionKey "FileVersion" "0.8.1"
+VIAddVersionKey "ProductVersion" "0.8.1"
 VIAddVersionKey "LegalCopyright" "Al Hadiya Traders"
 !define MUI_WELCOMEPAGE_TITLE "Welcome to Al Hadiya Traders"
 !define MUI_WELCOMEPAGE_TEXT "Offline billing, warehouse stock and takeaway cafe management.$\r$\n$\r$\nThis pilot installs for your Windows account. Python is included. Updates back up your database before replacing application files.$\r$\n$\r$\nPlease close shop billing before updating. Test the pilot before using it for live trading."
@@ -68,7 +68,7 @@ installfiles:
   CreateShortcut "$SMPROGRAMS\Al Hidaya Traders\Al Hadiya Traders.lnk" "$INSTDIR\AlHidayaTraders.exe"
   CreateShortcut "$DESKTOP\Al Hidaya Traders.lnk" "$INSTDIR\AlHidayaTraders.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "DisplayName" "Al Hadiya Traders"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "DisplayVersion" "0.8.0"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "DisplayVersion" "0.8.1"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlHidayaTraders" "NoRepair" 1

@@ -12,16 +12,16 @@ def alerts(db,settings):
    if not stocked and not policy:continue
    quantity=stocked[0] if stocked else 0;threshold=policy['safety_stock'] if policy else p['minimum'];plan=planned.get(key,{})
    if quantity<=threshold:
-    kind='stockout' if quantity<=0 else 'low_stock';message=f"{p['name']} [{p['sku']}] · {location}: {quantity:g} {p['unit']} available; threshold {threshold:g}."
-    if plan.get('recommended'):message+=f" Suggested {plan['recommended']:g} {p['unit']} ({p['pack']:g}/pack); incoming {plan['incoming']:g}."
-    if plan.get('transfer_available'):message+=f" Transfer up to {plan['transfer_available']:g} from Warehouse."
+    kind='stockout' if quantity<=0 else 'low_stock';message=f"{p['name']} ({location})\nAvailable: {quantity:g} {p['unit']}\nAlert level: {threshold:g} {p['unit']}"
+    if plan.get('recommended'):message+=f"\nSuggested order: {plan['recommended']:g} {p['unit']}\nPack size: {p['pack']:g} | Incoming: {plan['incoming']:g}"
+    if plan.get('transfer_available'):message+=f"\nAvailable transfer: {plan['transfer_available']:g} from Warehouse"
     result.append({'key':f'{kind}:{p["id"]}:{location}','kind':kind,'product_id':p['id'],'location':location,'message':message})
    elif plan.get('urgent'):
-    result.append({'key':f'reorder:{p["id"]}:{location}','kind':'reorder','product_id':p['id'],'location':location,'message':f"{p['name']} · {location}: {quantity:g} {p['unit']}; {plan['days_remaining']} days of supply. Lead time {plan['lead_days']} days; suggested {plan['recommended']:g}, incoming {plan['incoming']:g}."})
+    result.append({'key':f'reorder:{p["id"]}:{location}','kind':'reorder','product_id':p['id'],'location':location,'message':f"{p['name']} ({location})\nAvailable: {quantity:g} {p['unit']}\nSupply left: {plan['days_remaining']} days\nSupplier lead time: {plan['lead_days']} days\nSuggested: {plan['recommended']:g} | Incoming: {plan['incoming']:g}"})
    if p['expiry'] and quantity>0:
     days=(dt.date.fromisoformat(p['expiry'])-day).days
     if days<=7:
-     kind='expired' if days<0 else 'expiry';result.append({'key':f'{kind}:{p["id"]}:{location}:{p["expiry"]}','kind':kind,'product_id':p['id'],'location':location,'message':f"{p['name']} · {location}: {quantity:g} {p['unit']}; recorded SKU expiry {p['expiry']} ({days} days). Review affected stock; separate batches require separate SKUs."})
+     kind='expired' if days<0 else 'expiry';result.append({'key':f'{kind}:{p["id"]}:{location}:{p["expiry"]}','kind':kind,'product_id':p['id'],'location':location,'message':f"{p['name']} ({location})\nAvailable: {quantity:g} {p['unit']}\nRecorded expiry: {p['expiry']} ({days} days)\nReview affected stock. Expiry is recorded per SKU."})
  return result
 
 def queue(shop,db):

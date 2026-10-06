@@ -132,7 +132,7 @@ def process_outbox(shop):
                 from whatsapp_orders import window
                 if row['internal_id'] is not None and window(db,row['phone']):
                     params=json.loads(row['parameters'])
-                    row['message_type']='session';row['payload']=json.dumps({'type':'text','text':{'body':'INTERNAL · '+str(params[0])+'\n'+str(params[1])+'\n'+str(params[2])}})
+                    row['message_type']='session';row['payload']=json.dumps({'type':'text','text':{'body':'*'+str(params[0])+'*\n_Internal update: '+str(params[1])+'_\n\n'+str(params[2])}})
                 if row.get('message_type')=='session' and not window(db,row['phone']):
                     if not row.get('order_id'):
                         db.execute("UPDATE notifications SET status='cancelled',detail='Service window expired. Customer must send a new message.' WHERE id=?",(row['id'],));continue

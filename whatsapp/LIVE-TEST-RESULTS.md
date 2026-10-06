@@ -50,3 +50,9 @@ The owner confirmed receipt of both previous 0.7 Purchase and Sale internal test
 The authorised new live-format test used a separate temporary shop for all sample financial/stock records, with the saved sender credential loaded only at runtime. The first new Purchase message was rejected by Meta with **HTTP 401 / OAuth code 190**. Testing stopped immediately; Sale/Profile/Procurement/Daily messages were **not sent**. No real business invoices, stock or ledger balances were modified. A private test record is stored on the server, and the failed attempt is visible in its notification history.
 
 A fresh valid access token must be entered directly in **WhatsApp updates → Configure sender → Access token**. Native catalogue/webhook activation and production template approval remain prerequisites; saving a token alone does not establish native ordering or scheduled production delivery. No verification, webhook delivery or new message receipt is claimed.
+
+### Credential refresh and recipient confirmation
+
+After the owner supplied a refreshed credential, Meta accepted all five isolated 0.8 test messages: Purchase, Sale, Profile, Procurement and Daily summary / stock planning. **The owner confirmed all five were received**, then reported that the formatting was difficult to read. This confirms delivery for those session-message tests only. All six branded templates still returned PENDING; no linked Commerce catalogue or saved webhook secret was found. The daily summary remains configured for 20:00 Asia/Kolkata (17:30 Asia/Riyadh).
+
+Version 0.8.1 changes presentation to bold WhatsApp headings, paragraph-separated sections, short item/quantity lines, rupee amounts, distinct payment/account details and stock before/after balances. Daily detail pages are bounded to 2,200 characters. These layout changes preserve the underlying financial and inventory calculations.
