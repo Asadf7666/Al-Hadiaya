@@ -79,13 +79,14 @@ def main():
    with sync_playwright() as p:
     browser=p.chromium.launch(headless=True,args=['--no-sandbox']);errors=[]
     for server,shop,is_web in [(desktop,local,False),(hosted,web.shop,True)]:
-     page=browser.new_page(viewport={'width':1400,'height':1000});page.on('pageerror',lambda e:errors.append(str(e)))
+     page=browser.new_page(viewport={'width':1400,'height':1000});page.on('pageerror',lambda e:errors.append(e.stack))
+     page.add_init_script("const normalFetch=window.fetch;window.fetch=async(...args)=>{const response=await normalFetch(...args);if(['/api/users','/api/peers'].includes(args[0]))await new Promise(done=>setTimeout(done,250));return response;}")
      page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(('http://127.0.0.1:','http://localhost:')) else r.abort())
      origin='http://127.0.0.1:'+str(server.server_port);page.goto(origin+('/app' if is_web else '/'));focused(page,'#login-username');page.keyboard.insert_text('owner');page.keyboard.press('Tab');focused(page,'#login-password');page.keyboard.insert_text(PASSWORD);page.keyboard.press('Enter');page.wait_for_function("typeof S!=='undefined'&&!!S&&!!document.querySelector('#keyboard-help')")
      owner_checks(page,shop,is_web);page.close()
     # Permissions apply to keyboard commands exactly as they do to the UI.
     desktop.access.user({'username':'cashier','password':PASSWORD,'role':'cashier','location':'Warehouse'})
-    page=browser.new_page();page.on('pageerror',lambda e:errors.append(str(e)));page.goto('http://127.0.0.1:'+str(desktop.server_port)+'/login');focused(page,'#login-username');page.keyboard.insert_text('cashier');page.keyboard.press('Tab');page.keyboard.insert_text(PASSWORD);page.keyboard.press('Enter');page.wait_for_function("typeof S!=='undefined'&&S?.web_user?.role==='cashier'")
+    page=browser.new_page();page.on('pageerror',lambda e:errors.append(e.stack));page.goto('http://127.0.0.1:'+str(desktop.server_port)+'/login');focused(page,'#login-username');page.keyboard.insert_text('cashier');page.keyboard.press('Tab');page.keyboard.insert_text(PASSWORD);page.keyboard.press('Enter');page.wait_for_function("typeof S!=='undefined'&&S?.web_user?.role==='cashier'")
     page.keyboard.press('Alt+3');assert page.evaluate('page')=='overview';page.keyboard.press('Control+k');focused(page,'#command-query');page.keyboard.insert_text('Add product');assert page.locator('#command-results button').count()==0;page.keyboard.press('Escape');shortcut(page,'Alt+t','staff');page.keyboard.press('F4');assert not page.locator('#modal').evaluate('(d)=>d.open')
     assert not errors,errors;browser.close()
    print('Keyboard-only desktop and hosted acceptance passed: all pages, primary forms, validation/focus trap, product grid/barcodes, UPI checkout/exact stock, profiles, settings, retired-server recovery, mobile navigation and cashier restrictions; no JS errors or external messaging.')

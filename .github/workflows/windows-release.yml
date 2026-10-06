@@ -38,6 +38,8 @@ jobs:
           name: AlHidayaTraders-Windows
           path: dist/*
       - name: Publish the versioned download after checks pass
+        # Verified installers remain in Artifacts if repository release permission is denied.
+        continue-on-error: true
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

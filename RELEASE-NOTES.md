@@ -7,7 +7,9 @@ Keyboard access now covers the desktop and hosted business workspace. Navigate e
 - Ctrl+Enter submits forms; Escape closes dialogs. Visible focus, a skip link, labelled inputs, keyboard-scrollable tables and mobile navigation make controls easier to find.
 - Dialogs focus the first editable field, keep Tab within the dialog and restore the invoking control. Refreshes preserve the current field/query/caret; Enter repeat and duplicate form submission are guarded.
 - Settings → Server permanently removed? makes a local backup before clearing an unavailable server connection. Business records, recovery identity and unsent/incoming changes are preserved. Owner confirmation is required, messaging is paused, and PCs must be reconciled before folder exchange.
-- Keyboard-only desktop/web acceptance and the Windows installer/update checks run before GitHub publishes the release.
+- Keyboard-only desktop/web acceptance, including delayed staff responses during navigation, and the Windows installer/update checks run before a build artifact is uploaded.
+- Late staff/PC list responses cannot write into a page that has already been left.
+- Automatic release publication is optional when GitHub denies it with HTTP 403; verified installers remain downloadable as workflow artifacts and from the private handover.
 
 Upgrade every PC in place under the same Windows account and installation path. The installer preserves existing accounts, database, identity and pending changes. See [keyboard guide](docs/KEYBOARD.md) and [handover](docs/HANDOVER.md).
 

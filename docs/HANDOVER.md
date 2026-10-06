@@ -1,6 +1,6 @@
 # v1 handover and pause
 
-Validated Windows installer: [AlHidayaTraders-Setup-1.1.0.exe](https://github.com/Asadf7666/Al-Hadiaya/releases/download/v1.1.0/AlHidayaTraders-Setup-1.1.0.exe). [Release and checksum](https://github.com/Asadf7666/Al-Hadiaya/releases/tag/v1.1.0). The GitHub download remains available after the review VM was deleted. Windows installer/update checks passed; validate actual shop hardware before trading.
+Windows installer builds: [GitHub Windows workflow](https://github.com/Asadf7666/Al-Hadiaya/actions/workflows/windows-release.yml). Open a run with successful business, keyboard and Windows install/update checks, then download its AlHidayaTraders-Windows artifact and extract the EXE. Automatic release publication currently receives GitHub HTTP 403; the verified artifact and direct handover installer remain available. Release links for 1.1.0 are only usable after publication succeeds. Keep a local copy. Validate actual shop hardware before trading.
 
 Café POS sells menu items such as coffee and mojitos. Ingredients per serving are internal stock instructions, not a product sold to the customer. A customer sees the drink name, quantity and price on their bill. Packaged items use their normal stock quantities.
 
