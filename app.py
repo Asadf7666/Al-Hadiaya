@@ -102,7 +102,7 @@ class Shop:
                         'device_id':secrets.token_hex(8),'device_location':'','sync_folder':'','last_sync':'',
                         'admin_device_id':'','device_name':'','setup_role':'owner',
                         'cloud_url':'','cloud_business_id':'','cloud_cursor':0,'node_mode':'unified',
-                        'whatsapp_enabled':False,'whatsapp_phone_id':'','whatsapp_api_version':'','whatsapp_language':'en',
+                        'whatsapp_enabled':False,'whatsapp_pause_reason':'','whatsapp_phone_id':'','whatsapp_api_version':'','whatsapp_language':'en',
                         'whatsapp_invoice_template':'','whatsapp_payment_template':'','whatsapp_internal_template':'',
                         'whatsapp_waba_id':'','whatsapp_timezone':'Asia/Kolkata','whatsapp_daily_time':'','whatsapp_low_stock':True,'whatsapp_transfers':True,'whatsapp_purchases':True,'whatsapp_sales':False,'whatsapp_payments':False,'whatsapp_expenses':False,'whatsapp_reversals':True,'whatsapp_profiles':True,'whatsapp_catalogue':True,'whatsapp_stock':True,'whatsapp_recipes':True,'whatsapp_orders':True}
             for k,v in defaults.items():
@@ -123,6 +123,9 @@ class Shop:
             from outreach import migrate
             migrate(db)
             __import__("procurement").migrate(db)
+            __import__("operation_guard").migrate(db)
+            __import__("health").migrate(db)
+            __import__("whatsapp_policy").migrate(db)
             db.execute("UPDATE notifications SET status='uncertain',detail='App restarted during a send. Check Meta before trying again.' WHERE status='sending'")
             db.execute("CREATE UNIQUE INDEX IF NOT EXISTS barcode_unique ON products(barcode) WHERE barcode<>''")
             for p in db.execute('SELECT id,stock FROM products'):
@@ -151,6 +154,10 @@ class Shop:
             for doc in result['documents']:
                 doc['snapshot'] = json.loads(doc['snapshot'])
             result['local'] = True
+            tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            pending=db.execute('SELECT COUNT(*) FROM sync_events WHERE id NOT IN (SELECT event_id FROM cloud_sent)').fetchone()[0] if self.settings(db).get('cloud_url') and 'cloud_sent' in tables else None
+            result['diagnostics']={'pending_sync':pending,'background_tasks':[dict(r) for r in db.execute('SELECT * FROM runtime_health')]}
+            result['release_version']=(ROOT/'VERSION').read_text().strip()
             result['notifications'] = [dict(r) for r in db.execute('SELECT * FROM notifications ORDER BY created DESC LIMIT 100')]
             from media_catalogue import state as media_state
             result.update(media_state(db))
@@ -199,6 +206,7 @@ class Shop:
         db.execute('INSERT INTO movements(date,product_id,quantity,reference,note,location) VALUES(?,?,?,?,?,?)',(now(),pid,qty,ref,note,location))
 
     def act(self, action, data):
+        if action=='cloud_disconnect':return __import__('cloud_sync').disconnect(self,data)
         if action == 'cloud_address':
             from cloud_sync import change_server
             return change_server(self,data)
@@ -224,6 +232,9 @@ class Shop:
             from notifications import process_outbox
             return process_outbox(self)
         with self.lock, self.connect() as db:
+            from operation_guard import begin,finish
+            cached=begin(db,action,data)
+            if cached is not None:return cached
             before = self.capture(db)
             device_location = self.settings(db)['device_location']
             configuration = self.settings(db)
@@ -286,6 +297,13 @@ class Shop:
                     from notifications import whatsapp_number
                     whatsapp_number(data.get('phone'))
                 consent_date = existing['whatsapp_consent_date'] if existing else ''
+                fresh_consent=(opted_in and (not existing or not existing['whatsapp_opt_in']) or marketing and (not existing or not existing['whatsapp_marketing_opt_in']) or (opted_in or marketing) and existing and existing['phone']!=str(data.get('phone','')))
+                if fresh_consent:
+                    evidence=str(data.get('whatsapp_consent_note','')).strip()
+                    if not 8<=len(evidence)<=500:raise ValueError('Record how the customer agreed to WhatsApp receipts/updates or offers (8–500 characters). A mobile number alone is not consent.')
+                    consent_date=now()
+                    note=str(data.get('notes',''))+'\nWhatsApp consent '+consent_date+': '+evidence
+                    db.execute('UPDATE parties SET notes=? WHERE id=?',(note.strip(),pid))
                 if marketing and (not existing or not existing['whatsapp_marketing_opt_in'] or existing['phone']!=str(data.get('phone',''))):
                     consent_date = now()
                 db.execute('UPDATE parties SET whatsapp_opt_in=?,whatsapp_marketing_opt_in=?,whatsapp_consent_date=? WHERE id=?',(int(opted_in),int(marketing),consent_date,pid))
@@ -387,6 +405,7 @@ class Shop:
                     configured = self.settings(db)
                     if not re.fullmatch(r'[0-9]+',configured['whatsapp_phone_id']) or not re.fullmatch(r'v[0-9]+\.[0-9]+',configured['whatsapp_api_version']):
                         raise ValueError('Enter your Meta sender phone-number ID and a supported Graph API version.')
+                    db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(''),'whatsapp_pause_reason'))
                 if data.get('token'):
                     from notifications import save_token
                     save_token(self.folder,data['token'])
@@ -394,6 +413,8 @@ class Shop:
                 from notifications import whatsapp_number
                 phone = whatsapp_number(data.get('phone'))
                 opted_in = data.get('opt_in') in (True,1,'1','on','true')
+                duplicate=db.execute('SELECT id FROM internal_contacts WHERE phone=? AND id<>?',(phone,int(data.get('id') or 0))).fetchone()
+                if duplicate:raise ValueError('This staff WhatsApp number is already saved. Edit its existing contact.')
                 if data.get('id'):
                     db.execute('UPDATE internal_contacts SET name=?,phone=?,opt_in=? WHERE id=?',(required(data.get('name')),phone,int(opted_in),int(data['id'])))
                 else:
@@ -447,9 +468,10 @@ class Shop:
                 self.demo(db)
             else:
                 raise ValueError('Unknown action.')
-            self.audit(db,action,{k:v for k,v in data.items() if k not in ('items','token')})
+            self.audit(db,action,{k:v for k,v in data.items() if k not in ('items','token') and not k.startswith('_request_')})
             event_id = self.record_event(db,before)
             self.queue_updates(db,action,data,result,event_id)
+            finish(db,action,data,result)
             return result
 
     def notification(self, db, ident, kind, phone, template, parameters, party_id=None, internal_id=None):
@@ -842,7 +864,7 @@ class Shop:
                 raise ValueError('Confirm HSN/SAC and tax rate before GST billing: '+p['name'])
             if settings['gst_enabled'] and not p['hsn'].isdigit():
                 raise ValueError('Enter HSN/SAC before GST billing: '+p['name'])
-            if kind == 'sale' and p['expiry'] and p['expiry'] < dt.date.today().isoformat():
+            if kind == 'sale' and p['expiry'] and p['expiry'] < __import__('outreach').business_now({'whatsapp_timezone':'Asia/Kolkata'}).date().isoformat():
                 raise ValueError('Expired stock cannot be sold: '+p['name'])
             if kind == 'purchase' and p['kind'] == 'recipe':
                 raise ValueError('Receive ingredients, not prepared café products.')
@@ -859,7 +881,8 @@ class Shop:
         total = gross-discount
         allocated, taxsum = 0, 0
         ident = ('S' if kind == 'sale' else 'P')
-        year = dt.date.today().year if dt.date.today().month >= 4 else dt.date.today().year-1
+        business_day=__import__('outreach').business_now({'whatsapp_timezone':'Asia/Kolkata'}).date()
+        year=business_day.year if business_day.month>=4 else business_day.year-1
         prefix = f"{settings['invoice_prefix']}{settings['device_id'][:6].upper()}{ident}{str(year)[-2:]}"
         count = db.execute('SELECT COUNT(*) FROM documents WHERE id LIKE ?',(prefix+'%',)).fetchone()[0]+1
         if count > 99999:
@@ -881,11 +904,12 @@ class Shop:
             taxsum += tax
             cost = int(Decimal(p['cost'])*Decimal(str(qty)))
             if p['kind'] == 'recipe':
-                recipe = list(db.execute('SELECT r.*,p.cost FROM recipes r JOIN products p ON p.id=r.ingredient_id WHERE product_id=?',(p['id'],)))
+                recipe = list(db.execute('SELECT r.*,p.cost,p.expiry FROM recipes r JOIN products p ON p.id=r.ingredient_id WHERE product_id=?',(p['id'],)))
                 if not recipe:
                     raise ValueError('Set up the recipe for '+p['name']+' before billing.')
                 cost = 0
                 for r in recipe:
+                    if r['expiry'] and r['expiry']<business_day.isoformat():raise ValueError('A recipe ingredient has expired. Review its stock before billing.')
                     used = qty*r['quantity']
                     self.movement(db,r['ingredient_id'],-used,docid,'Café recipe: '+p['name'],location)
                     cost += int(Decimal(r['cost'])*Decimal(str(used)))
@@ -949,13 +973,13 @@ class Shop:
         db.execute('UPDATE documents SET reversed=1 WHERE id=?',(doc['id'],))
         return {'refund':doc['paid'],'method':doc['payment']}
 
-    def backup(self, local_only=False):
+    def backup(self, local_only=False, automatic=False):
         with self.lock, self.connect() as source:
             settings = self.settings(source)
             folders = [self.folder/'backups']
             if settings['backup_folder'] and not local_only:
                 folders.append(Path(settings['backup_folder']).expanduser())
-            name = 'AlHidaya-'+dt.datetime.now().strftime('%Y%m%d-%H%M%S-%f')+'.sqlite3'
+            name = ('AlHidaya-Auto-' if automatic else 'AlHidaya-')+dt.datetime.now().strftime('%Y%m%d-%H%M%S-%f')+'.sqlite3'
             paths = []
             for folder in folders:
                 folder.mkdir(parents=True,exist_ok=True)
@@ -968,6 +992,8 @@ class Shop:
                     import shutil
                     shutil.copytree(self.folder/'media',target.with_suffix('.media'),dirs_exist_ok=True)
                 paths.append(str(target))
+                if automatic:
+                    __import__('backup_retention').prune(folder)
             source.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(now()),'last_backup'))
             return {'paths':paths,'message':'Verified database backup saved. Your cloud-folder app handles upload when online.'}
 
@@ -1098,13 +1124,21 @@ def main():
         restore_backup(shop,args.restore)
         print('Backup restored. Start the app normally.')
         return
-    Handler.shop = shop
+    from desktop_http import DesktopHandler
+    from staff_access import StaffAccess
+    DesktopHandler.shop = shop
     try:
-        server = ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
+        server = ThreadingHTTPServer(('127.0.0.1',args.port),DesktopHandler)
+        server.access=StaffAccess(shop.folder,f'http://127.0.0.1:{args.port}',False,local=True,shop=shop)
+        from notifications import protect
+        from desktop_http import TOKEN as maintenance_token
+        control=shop.folder/'maintenance-credential.bin'
+        control.touch(mode=0o600,exist_ok=True);control.write_bytes(protect(maintenance_token.encode()))
+        if os.name!='nt':control.chmod(0o600)
     except OSError:
         try:
             import urllib.request
-            with urllib.request.urlopen(url if 'url' in locals() else f'http://127.0.0.1:{args.port}/api/state',timeout=2) as response:
+            with urllib.request.urlopen(url if 'url' in locals() else f'http://127.0.0.1:{args.port}/health',timeout=2) as response:
                 if not json.load(response).get('local'):
                     raise ValueError('Port in use')
             if not args.no_browser:
@@ -1123,17 +1157,14 @@ def main():
         ticks = 0
         while not stop.wait(30):
             ticks += 1
-            try:
-                if ticks % 30 == 0:
-                    shop.backup()
-                with shop.connect() as db:
-                    if shop.settings(db)['sync_folder'] or shop.settings(db).get('cloud_url'):
-                        shop.sync()
-                shop.daily_update()
-                from notifications import process_outbox
-                process_outbox(shop)
-            except Exception:
-                pass  # UI exposes last successful backup; billing stays available.
+            from health import run
+            if ticks % 30==0:run(shop,'backup',lambda:shop.backup(automatic=True))
+            with shop.connect() as db:configured=shop.settings(db)
+            if configured['sync_folder'] or configured.get('cloud_url'):run(shop,'sync',lambda:shop.sync())
+            run(shop,'daily_summary',lambda:shop.daily_update())
+            from notifications import process_outbox
+            run(shop,'whatsapp',lambda:process_outbox(shop))
+
     stop = threading.Event()
     threading.Thread(target=autobackup,daemon=True).start()
     try:

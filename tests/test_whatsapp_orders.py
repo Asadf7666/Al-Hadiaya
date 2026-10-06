@@ -6,6 +6,7 @@ from notifications import process_outbox
 from whatsapp_orders import act,feed
 class WhatsAppOrderTests(unittest.TestCase):
  def setUp(self):
+  ready=patch('whatsapp_policy.sender_ready',return_value=(True,''));ready.start();self.addCleanup(ready.stop)
   self.tmp=tempfile.TemporaryDirectory();self.shop=Shop(self.tmp.name)
   self.shop.act('whatsapp_settings',{'whatsapp_enabled':True,'whatsapp_phone_id':'123456','whatsapp_waba_id':'654321','whatsapp_api_version':'v26.0','whatsapp_language':'en_US','whatsapp_internal_template':'staff','token':'test-only-not-real'})
   self.pid=self.shop.act('product',{'name':'Cold drink','sku':'DRINK','category':'Cold drinks','kind':'stock','unit':'bottle','price':50,'wholesale_price':45,'cost':20,'stock':100,'minimum':0,'location':'Warehouse'})['id']
@@ -62,6 +63,7 @@ class WhatsAppOrderTests(unittest.TestCase):
   with self.shop.connect() as db:
    db.execute('UPDATE whatsapp_sessions SET last_message=0 WHERE phone=?',('919876543211',))
    db.execute('INSERT INTO whatsapp_templates(name,language,status,category,body,supported,checked) VALUES(?,?,?,?,?,?,?)',('staff','en_US','PENDING','UTILITY','{{1}} {{2}} {{3}}',1,dt.datetime.now(dt.timezone.utc).isoformat()))
+  with self.shop.connect() as db:db.execute('UPDATE whatsapp_send_throttle SET attempted=0')
   act(self.shop,'trade_order_status',{'id':self.order()['id'],'status':'confirmed'})
   with patch('notifications.deliver',return_value=('accepted','OK','wamid.second')) as send:process_outbox(self.shop)
   self.assertTrue(any(n['internal_id']==cid and n['status']=='blocked' for n in self.shop.state()['notifications']))
@@ -109,7 +111,7 @@ class WhatsAppOrderTests(unittest.TestCase):
   from test_media_catalogue import png
   from media_catalogue import upload
   image=upload(self.shop,{'name':'Product.png','content':base64.b64encode(png()).decode()})['id']
-  self.shop.act('catalogue_product',{'product_id':self.pid,'asset_id':image,'published':True})
+  self.shop.act('catalogue_product',{'product_id':self.pid,'asset_id':image,'published':True,'policy_confirmed':True})
   self.shop.act('catalogue_settings',{'enabled':True})
   rows=list(csv.DictReader(io.StringIO(feed(self.shop,'https://example.com'))))
   self.assertEqual(rows[0]['id'],'CASE24');self.assertEqual(rows[0]['price'],'1200.00 INR');self.assertEqual(rows[0]['availability'],'in stock');self.assertEqual(rows[0]['image_link'],'https://example.com/media/'+image)

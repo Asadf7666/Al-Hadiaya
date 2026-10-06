@@ -27,6 +27,9 @@ def state(db):return {'inventory_plans':[dict(r) for r in db.execute('SELECT * F
 def act(shop,action,data):
  from app import number,money
  with shop.lock,shop.connect() as db:
+  from operation_guard import begin,finish
+  cached=begin(db,action,data)
+  if cached is not None:return cached
   before=shop.capture(db)
   if action=='inventory_plan':
    pid=int(data['product_id']);location=shop.location(data.get('location','Warehouse'));supplier=int(data['supplier_id']) if data.get('supplier_id') else None;lead=int(data.get('lead_days',2));cover=int(data.get('cover_days',14));safety=number(data.get('safety_stock',0))
@@ -51,7 +54,7 @@ def act(shop,action,data):
    if not row or status not in allowed.get(row['status'],()):raise ValueError('Approve a draft, mark an approved order sent, or cancel outstanding quantities. Receipt status is updated by goods receipts.')
    db.execute('UPDATE purchase_orders SET status=?,updated=?,revision=revision+1 WHERE id=?',(status,stamp(),row['id']));result={'id':row['id']}
   else:raise ValueError('Unknown procurement action.')
-  shop.audit(db,action,{k:v for k,v in data.items() if k!='items'});eid=shop.record_event(db,before);shop.queue_updates(db,action,data,result,eid)
+  shop.audit(db,action,{k:v for k,v in data.items() if k!='items'});eid=shop.record_event(db,before);shop.queue_updates(db,action,data,result,eid);finish(db,action,data,result)
  return result
 def check_receipt(db,data):
  ident=str(data.get('purchase_order_id',''))

@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -69,7 +70,7 @@ def deliver(settings, token, row):
     if row.get('image_id'):
         payload['template']['components'].append({'type':'header','parameters':[{'type':'image','image':{'id':row['image_id']}}]})
     params=json.loads(row['parameters'])
-    if params:payload['template']['components'].append({'type':'body','parameters':[{'type':'text','text':str(v)} for v in params]})
+    if params:payload['template']['components'].append({'type':'body','parameters':[{'type':'text','text':re.sub(r'\s+',' ',str(v)).strip()} for v in params]})
     if not payload['template']['components']:payload['template'].pop('components')
     if row.get('message_type')=='session':
         content=json.loads(row['payload'])
@@ -88,12 +89,22 @@ def deliver(settings, token, row):
         # Extract numeric error codes only, never raw responses or credentials.
         try:code=json.load(e).get('error',{}).get('code')
         except Exception:code=None
-        reason={132001:'Template is not approved/available in the selected language.',131047:'The 24-hour service window has expired; an approved template is required.',131009:'Catalogue/product setup or message parameters are invalid.',131026:'Recipient cannot receive this WhatsApp message.',131049:'Meta restricted marketing delivery to this recipient.'}.get(code,'Check sender setup, template and permissions.')
+        if code==190:return 'restricted','Sender token is invalid, expired or revoked (code 190). Sending paused; save a fresh credential.',''
+        if code in (368,131031,131048):
+            return 'restricted',f'Meta restricted the sender (code {code}). Sending paused; check Business Support Home before enabling it again.',''
+        reason={190:'The sender token is invalid, expired or revoked. Save a fresh credential in Configure sender.',132001:'Template is not approved/available in the selected language.',131047:'The 24-hour service window has expired; an approved template is required.',131009:'Catalogue/product setup or message parameters are invalid.',131026:'Recipient cannot receive this WhatsApp message.',131049:'Meta restricted marketing delivery to this recipient.'}.get(code,'Check sender setup, template and permissions.')
         return ('retry' if e.code==429 or e.code>=500 else 'failed'),f'WhatsApp HTTP {e.code}, code {code}: {reason}',''
     except (TimeoutError,urllib.error.URLError,OSError,json.JSONDecodeError):
         return 'uncertain','The response was lost or unavailable. Check Meta before retrying to avoid duplicate notifications.',''
 
 def process_outbox(shop):
+    with shop.lock,shop.connect() as db:settings=shop.settings(db)
+    if not settings['whatsapp_enabled']:return {'processed':0}
+    token=read_token(shop.folder)
+    if not token:return {'processed':0,'message':'WhatsApp token is not configured.'}
+    from whatsapp_policy import sender_ready,message_allowed
+    ready,reason=sender_ready(shop,settings,token)
+    if not ready:return {'processed':0,'message':reason}
     with shop.lock,shop.connect() as db:
         settings=shop.settings(db)
         if not settings['whatsapp_enabled']:
@@ -102,13 +113,26 @@ def process_outbox(shop):
         if not token:
             return {'processed':0,'message':'WhatsApp token is not configured.'}
         current=dt.datetime.now().astimezone().isoformat()
-        rows=[dict(r) for r in db.execute("SELECT * FROM notifications WHERE status IN ('queued','retry','blocked') AND julianday(next_attempt)<=julianday(?) ORDER BY created LIMIT 10",(current,))]
+        stamp=time.time();last=db.execute("SELECT attempted FROM whatsapp_send_throttle WHERE phone='*'").fetchone()
+        if last and stamp-last[0]<10:return {'processed':0,'message':'Sender pacing; messages remain queued.'}
+        rows=[];phones=set()
+        for record in db.execute("SELECT * FROM notifications WHERE status IN ('queued','retry','blocked') AND julianday(next_attempt)<=julianday(?) ORDER BY created LIMIT 50",(current,)):
+            row=dict(record);last=db.execute('SELECT attempted FROM whatsapp_send_throttle WHERE phone=?',(row['phone'],)).fetchone()
+            if row['phone'] in phones or last and stamp-last[0]<30:continue
+            rows.append(row);phones.add(row['phone'])
+            if len(rows)>=3:break
         # Claim before network I/O. A crash cannot automatically resubmit a possibly sent message.
         for row in rows:
             db.execute("UPDATE notifications SET status='sending',attempts=attempts+1 WHERE id=?",(row['id'],))
+            db.execute('INSERT OR REPLACE INTO whatsapp_send_throttle VALUES(?,?)',(row['phone'],stamp))
+        if rows:db.execute("INSERT OR REPLACE INTO whatsapp_send_throttle VALUES('*',?)",(stamp,))
     for row in rows:
         try:
             with shop.lock,shop.connect() as db:
+                settings=shop.settings(db)
+                if not settings['whatsapp_enabled']:
+                    db.execute("UPDATE notifications SET status='queued',attempts=attempts-1,detail='Sender paused before sending.' WHERE id=? AND status='sending'",(row['id'],))
+                    continue
                 if row['internal_id'] is not None:
                     p=db.execute('SELECT * FROM internal_contacts WHERE id=?',(row['internal_id'],)).fetchone()
                     consent=p and p['opt_in']
@@ -124,6 +148,9 @@ def process_outbox(shop):
                 if row.get('campaign_id'):
                     campaign=db.execute('SELECT status FROM whatsapp_campaigns WHERE id=?',(row['campaign_id'],)).fetchone()
                     consent=consent and campaign and campaign['status']=='approved'
+                    previous=db.execute('SELECT sent FROM whatsapp_marketing_history WHERE phone=?',(row['phone'],)).fetchone()
+                    if previous and time.time()-previous[0]<86400:
+                        db.execute("UPDATE notifications SET status='cancelled',detail='One-offer-per-day app limit reached. Create a fresh campaign later if the offer is still relevant.' WHERE id=?",(row['id'],));continue
                 current_row=db.execute('SELECT status FROM notifications WHERE id=?',(row['id'],)).fetchone()
                 consent=consent and current_row and current_row['status']=='sending'
                 if not consent or whatsapp_number(p['phone'])!=row['phone']:
@@ -138,10 +165,12 @@ def process_outbox(shop):
                         db.execute("UPDATE notifications SET status='cancelled',detail='Service window expired. Customer must send a new message.' WHERE id=?",(row['id'],));continue
                     row['message_type']='template'
                 if row.get('message_type','template')=='template':
-                    template=db.execute('SELECT status FROM whatsapp_templates WHERE name=? AND language=?',(row['template'],row.get('language') or settings['whatsapp_language'])).fetchone()
-                    if template and template['status']!='APPROVED':
+                    template=db.execute('SELECT * FROM whatsapp_templates WHERE name=? AND language=?',(row['template'],row.get('language') or settings['whatsapp_language'])).fetchone()
+                    fresh=template and template['checked'] and dt.datetime.now(dt.timezone.utc)-dt.datetime.fromisoformat(template['checked'])<dt.timedelta(hours=24)
+                    if not template or template['status']!='APPROVED' or not template['supported'] or not fresh or template['category']!=('MARKETING' if row['kind']=='marketing' else 'UTILITY'):
                         wait=(dt.datetime.now().astimezone()+dt.timedelta(minutes=5)).isoformat()
-                        db.execute("UPDATE notifications SET status='blocked',detail=?,attempts=attempts-1,next_attempt=? WHERE id=?",('Waiting for Meta template approval: '+row['template'],wait,row['id']));continue
+                        db.execute("UPDATE notifications SET status='blocked',detail=?,attempts=attempts-1,next_attempt=? WHERE id=?",('Refresh templates; an approved, supported and appropriate template is required: '+row['template'],wait,row['id']));continue
+            message_allowed(row)
             status,detail,message_id=deliver(settings,token,row)
         except Exception:
             status,detail,message_id='failed','Check notification configuration. No automatic retry was scheduled.',''
@@ -150,8 +179,13 @@ def process_outbox(shop):
             status='failed';detail+=' Retry limit reached.'
         retry=(dt.datetime.now().astimezone()+dt.timedelta(seconds=delay)).isoformat(timespec='seconds')
         with shop.lock,shop.connect() as db:
+            if status=='restricted':
+                db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(False),'whatsapp_enabled'))
+                db.execute('INSERT OR REPLACE INTO settings VALUES(?,?)',('whatsapp_pause_reason',json.dumps(detail)))
+                status='failed'
             db.execute('UPDATE notifications SET status=?,detail=?,provider_id=?,next_attempt=? WHERE id=?',(status,detail,message_id,retry,row['id']))
             if message_id:
+                if row['kind']=='marketing':db.execute('INSERT OR REPLACE INTO whatsapp_marketing_history VALUES(?,?)',(row['phone'],time.time()))
                 from outreach import apply_receipt
                 apply_receipt(db,message_id)
     return {'processed':len(rows)}

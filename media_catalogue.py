@@ -90,6 +90,7 @@ def act(shop,action,data):
    if published and p['price']<=0:raise ValueError('Set a retail price before publishing this product.')
    description=str(data.get('description','')).strip()
    if len(description)>500:raise ValueError('Description must be under 500 characters.')
+   if published:__import__('whatsapp_policy').approve_catalogue(db,p,asset,description,data.get('policy_confirmed'))
    db.execute('INSERT INTO catalogue_products VALUES(?,?,?,?) ON CONFLICT(product_id) DO UPDATE SET asset_id=excluded.asset_id,description=excluded.description,published=excluded.published',(pid,asset,description,int(published)))
   elif action=='catalogue_settings':
    phone=whatsapp_number(data['phone']) if str(data.get('phone','')).strip() else ''
@@ -110,13 +111,13 @@ def public_state(shop):
   settings=shop.settings(db)
   if not settings['catalogue_enabled']:return {'name':settings['name'],'enabled':False,'products':[],'phone':'','banner':''}
   rows=db.execute("SELECT p.id,p.name,p.price,p.category,p.unit,p.size,p.brand,p.kind,p.stock,c.asset_id,c.description FROM catalogue_products c JOIN products p ON p.id=c.product_id WHERE c.published=1 AND p.price>0 AND p.kind<>'ingredient'")
-  products=[{k:r[k] for k in ('id','name','price','category','unit','size','brand','kind','asset_id','description')}|{'available':r['stock']>0 or r['kind']=='recipe'} for r in rows]
+  products=[{k:r[k] for k in ('id','name','price','category','unit','size','brand','kind','asset_id','description')}|{'available':r['stock']>0 or r['kind']=='recipe'} for r in rows if __import__('whatsapp_policy').catalogue_ready(db,r,r['asset_id'],r['description'])]
   return {'name':settings['name'],'enabled':True,'products':products,'phone':settings['catalogue_phone'],'banner':settings['catalogue_banner']}
 
 def public_asset(shop,ident):
  with shop.connect() as db:
   settings=shop.settings(db)
-  return settings['catalogue_enabled'] and (settings['catalogue_banner']==ident or db.execute("SELECT 1 FROM catalogue_products c JOIN products p ON p.id=c.product_id WHERE c.published=1 AND p.price>0 AND p.kind<>'ingredient' AND c.asset_id=?",(ident,)).fetchone())
+  return settings['catalogue_enabled'] and (settings['catalogue_banner']==ident or any(p['asset_id']==ident for p in public_state(shop)['products']))
 
 def order(shop,data):
  with shop.lock,shop.connect() as db:

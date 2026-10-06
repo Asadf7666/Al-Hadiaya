@@ -11,13 +11,14 @@ from outreach import act,receive,save_webhook,challenge
 
 class OutreachTests(unittest.TestCase):
  def setUp(self):
+  ready=patch('whatsapp_policy.sender_ready',return_value=(True,''));ready.start();self.addCleanup(ready.stop)
   self.tmp=tempfile.TemporaryDirectory();self.shop=Shop(self.tmp.name)
   self.shop.act('whatsapp_settings',{'whatsapp_enabled':True,'whatsapp_phone_id':'123456','whatsapp_waba_id':'654321','whatsapp_api_version':'v26.0','whatsapp_language':'en_US'})
   with self.shop.connect() as db:
    db.execute('INSERT INTO whatsapp_templates(name,language,status,category,body,supported,checked) VALUES(?,?,?,?,?,?,?)',('offers','en_US','APPROVED','MARKETING','Hello {{1}}, {{2}}: {{3}}',1,dt.datetime.now(dt.timezone.utc).isoformat()))
  def tearDown(self):self.tmp.cleanup()
  def customer(self,phone='9876543210',**kw):
-  return self.shop.act('party',{'name':'Customer','kind':'customer','phone':phone,**kw})['id']
+  return self.shop.act('party',{'name':'Customer','kind':'customer','phone':phone,'whatsapp_consent_note':'Customer explicitly agreed during test signup',**kw})['id']
  def draft(self,ids,**kw):
   return act(self.shop,'campaign_create',dict(name='Weekend',offer='Coffee offer',template='offers',language='en_US',customer_ids=ids,**kw))['id']
  def approve(self,ident):
@@ -77,7 +78,7 @@ class OutreachTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as folder:
    offline=Shop(folder)
    pid=offline.act('product',{'name':'Drink','sku':'DR','category':'Cold drinks','kind':'stock','unit':'bottle','price':50,'cost':20,'stock':5,'minimum':0,'location':'Outlet'})['id']
-   cid=offline.act('party',{'name':'Buyer','kind':'customer','phone':'9876543211','whatsapp_opt_in':True})['id']
+   cid=offline.act('party',{'name':'Buyer','kind':'customer','phone':'9876543211','whatsapp_opt_in':True,'whatsapp_consent_note':'Customer explicitly requested receipts during test checkout'})['id']
    offline.act('sale',{'items':[{'product_id':pid,'quantity':1}],'party_id':cid,'payment':'Cash','location':'Outlet'})
    with offline.connect() as db:events=[dict(r) for r in db.execute('SELECT * FROM sync_events ORDER BY rowid')]
    with self.shop.connect() as db:db.execute("UPDATE settings SET value=? WHERE key='whatsapp_invoice_template'",(json.dumps('receipt'),))

@@ -1,19 +1,19 @@
-# Al Hadiya Traders — Shop Manager 0.8.0
+# Al Hadiya Traders — Business Manager 1.0.0
 
 An owned Windows and web shop manager for an Indian trading warehouse/retail counter and a takeaway café. Every paired PC has all business functions. Warehouse and Outlet identify transaction locations, not device permissions or separate applications. Internet is not needed for local Windows operations. The browser website requires a connection to its server.
 
 ## Install or update Windows
 
-1. Run `AlHidayaTraders-Setup-0.8.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
+1. Run `AlHidayaTraders-Setup-1.0.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
 2. Open the app from its desktop or Start Menu shortcut. The launcher serves the interface at `127.0.0.1:8765` and must remain open.
 3. Choose the default transaction location in the header or Settings. Every node can work with both locations, receive purchases, record payments, manage stock and products, define recipes, issue credit bills and change business/GST details.
-4. Confirm real prices, stock, pack quantities, barcodes and tax classifications before live trading. Karnataka defaults to state code 29. The installer is unsigned and remains a pilot; physical printer/scanner testing and the 0.8.0 installer execution on Windows 10/11 have not been verified here.
+4. Confirm real prices, stock, pack quantities, barcodes and tax classifications before live trading. Karnataka defaults to state code 29. The installer is unsigned. Physical printer/scanner acceptance is required; the Windows release workflow executes installation/update checks before publishing a download.
 
 ## Connect a node to the online business
 
 1. As owner in the online app, open Account & staff → Connect a Windows PC. Choose its default location and generate a one-time code. The code expires after ten minutes and binds to one identity; it does not assign a restricted device role or stock quota.
 2. On an empty Windows app or one containing only disposable samples, open Settings → Connect to online business. Enter the server HTTPS origin, code and a PC name. The app backs up existing local records, then adopts the server's shared records. This join flow does not merge real historical databases.
-3. On an already paired node, upgrade in place and click Sync now. Version 0.7 uses sync protocol 4 for shared WhatsApp orders and SKU mappings. Upgrade every paired Windows PC before exchange. Existing data, identity, pairing and unsent events are preserved. Folder sync writes version 2 files; update all nodes sharing that folder.
+3. On an already paired node, upgrade in place and click Sync now. Version 1.0 uses sync protocol 5 for shared WhatsApp orders and SKU mappings. Upgrade every paired Windows PC before exchange. Existing data, identity, pairing and unsent events are preserved. Folder sync writes version 3 files; update all nodes sharing that folder.
 4. If the same server's IP/domain changes, use Settings → Update server address. This verifies the existing credential and business identity at the new HTTPS origin, and preserves records and pending operations. This does not migrate to a new server/business.
 5. Exchange runs every 30 seconds while the launcher is open. Offline changes stay in the local database and upload on reconnection. The online server also relays changes between PCs. Repeated uploads are idempotent.
 
@@ -66,7 +66,7 @@ Outboxes, campaigns, internal recipient lists and sender credentials are local t
 
 The live database lives at `%LOCALAPPDATA%\AlHidayaTraders\shop.sqlite3` for the Windows account using the app. Local verified backups go into its `backups` folder. An optional additional backup folder can be configured for an external drive or cloud-folder backup.
 
-Backups run every 15 minutes while the app is open and on a clean close. **Back up now** or **Download backup** creates a SQLite snapshot safe to copy. Automatic backup failure does not stop billing; check the last successful backup in Settings. In this pilot, backup files are retained until you archive/delete them yourself; monitor disk space.
+Backups run every 15 minutes while the app is open and on a clean close. **Back up now** or **Download backup** creates a SQLite snapshot safe to copy. Automatic backup failure does not stop billing; check the last successful backup in Settings. Manual/update/recovery snapshots are retained until you archive them. Periodic snapshots retain the latest eight plus one per latest seven recorded days. Monitor disk space and keep an external copy.
 
 To quit, use **Settings → Close app safely**. Closing only the browser tab leaves the local app process running to perform scheduled sync/backup.
 
@@ -87,15 +87,15 @@ Restore validates the backup and makes a local snapshot before replacement. When
 - UPI/card/bank selections record an externally completed payment. They do not initiate or verify payment-terminal or bank transactions.
 - Cash drawers, weighing scales, silent raw ESC/POS printing and kitchen hardware integrations require specific device testing/adapters.
 
-## Staff permissions and pilot boundaries
+## Staff permissions and release scope
 
-Node capabilities are equal. The online app still has owner/manager/cashier/viewer permissions for staff accounts, as requested; those apply to people rather than making a warehouse or café PC special. Windows currently relies on the Windows account and local-file access, with no individual local staff login. Protect its files and do not expose its local HTTP listener publicly.
+Node capabilities are equal. The online app still has owner/manager/cashier/viewer permissions for staff accounts, as requested; those apply to people rather than making a warehouse or café PC special. Windows has offline owner setup and individual local staff sign-in with the same roles. Accounts/passwords stay on their installation, while business records sync. Protect its files and do not expose its local HTTP listener publicly.
 
 - Expiry is per SKU, not batch/FEFO. Separate batch SKUs are needed.
 - Full internal reversals require refund reconciliation and do not generate statutory GST credit notes. Partial returns are not implemented.
 - Basic regular-registration GST and percentage cess are present; composition billing, specific cess, IRN/e-way bills, portal filing and accountant-certified books are not provided.
 - Contribution is a management estimate using recorded acquisition/recipe costs, not statutory profit/valuation.
-- Orders, challans, split payments, cash shifts, loyalty, Tally integration and production recovery/scaling remain future work.
+- Native WhatsApp trading orders and procurement orders are implemented. Challans, split payments, cash shifts, loyalty and Tally integration remain outside this release.
 - The hosted review uses central SQLite behind Caddy HTTPS with hashed passwords, sessions, CSRF protection and staff roles. It is a review deployment. Its previously scheduled expiry/deletion was cancelled at the user's request. There is no newly scheduled expiry.
 
 ## Source and verification
@@ -125,7 +125,7 @@ WhatsApp orders are a separate shared workspace. Link an owned Meta Commerce cat
 
 Map retailer IDs to packaged trading products and units per catalogue item (single bottle or case). Publish actual photos and confirmed prices first, then download the Meta feed CSV from the hosted order workspace and upload it to Commerce Manager. For automatic catalogue updates, configure Commerce Manager to fetch the hosted `/commerce-feed.csv` URL on its hourly schedule after linking/enabling the catalogue. Each fetch reflects current synced prices and Warehouse availability. Initial imports can use the downloaded CSV. Updates follow Meta’s feed schedule and processing time; orders are rechecked before acceptance and invoicing.
 
-Staff review new/needs-review orders, confirm, pack, mark ready, create a linked normal POS invoice and complete. Price mismatches require explicit customer agreement to revised prices; unknown items, non-INR currency and insufficient stock remain blocked. Stock is deducted by the normal invoice, not reserved on acknowledgement. Orders/mappings sync to all 0.7 nodes, including offline operation once received. Independent offline duplicate invoices produce a sync conflict for staff reconciliation; the server does not silently keep both. Optional customer profiles and credit use the existing POS controls. Invoiced orders cannot be cancelled through the order status switch; normal accounting reversal controls apply.
+Staff review new/needs-review orders, confirm, pack, mark ready, create a linked normal POS invoice and complete. Price mismatches require explicit customer agreement to revised prices; unknown items, non-INR currency and insufficient stock remain blocked. Stock is deducted by the normal invoice, not reserved on acknowledgement. Orders/mappings sync to all compatible nodes, including offline operation once received. Independent offline duplicate invoices produce a sync conflict for staff reconciliation; the server does not silently keep both. Optional customer profiles and credit use the existing POS controls. Invoiced orders cannot be cancelled through the order status switch; normal accounting reversal controls apply.
 
 Internal alerts cover incoming orders and order updates, sales, purchases, customer/supplier payments, expenses, transfers, reversals, low stock and daily summaries according to sender settings. Add opted-in staff recipients. A genuine inbound message opens that sender's 24-hour service window for direct staff/customer service replies; otherwise approved templates are required. Pending/rejected templates are visibly blocked and checked again, rather than treated as delivered. Only one sender should be active for shared automation. Hosted delivery needs Internet; offline stock/billing/order management still works, and alerts are generated after sync.
 
@@ -141,4 +141,21 @@ Internal notifications now itemise invoice products, quantities, price/tax/payme
 
 Stock alerts cover location-specific low stock, stockouts, lead-time reorder needs, and recorded SKU expiry within seven days. Each condition sends once per active episode; replenishment clears it and a later recurrence can alert again. Alerts remain visible in the workspace and daily summary. Expiry is per SKU: use separate SKUs for separate batches. One configured online sender should handle WhatsApp delivery; other nodes sync business events. Delivery still requires the authenticated Meta service window or an approved template, sender availability and recipient opt-in.
 
-Upgrade every Windows PC to 0.8.0 before syncing with the updated server (protocol 5 / file-sync format 3). Existing databases, pairing and customer records are preserved by the update. Windows installer execution still needs validation on a Windows PC.
+Upgrade every Windows PC to 1.0.0 before syncing with the updated server (protocol 5 / file-sync format 3). Existing databases, pairing and customer records are preserved by the update. Check the Windows release workflow result and validate actual shop hardware before trading.
+
+
+## v1 access, reliability and policy upgrade
+
+Download the versioned installer from [GitHub Releases](https://github.com/Asadf7666/Al-Hadiaya/releases) after the Windows workflow passes. On the first desktop v1 launch, create an owner account (12–256 character password); sign-in works offline. Existing online passwords remain. Staff & access creates accounts, disables/enables staff and resets passwords; disabling/resetting revokes sessions. For local owner recovery, run the installed `tools/reset_owner.py --username owner` with the included Python console runtime under the Windows account owning the data.
+
+Financial retry keys commit with stock and ledger changes. Retrying the same interrupted request does not save a second bill. Unfinished POS baskets survive a tab reload; review current stock/prices before checkout. Café & recipes → Open café POS selects Outlet and the Café menu filter; walk-in customers are optional and saving bills consumes configured recipe ingredients. Pack-entry helpers, mobile navigation and role-aware screens reduce routine entry. Background backup, sync and WhatsApp tasks run independently and show status.
+
+Settings → Download backup with photos creates a portable ZIP containing private records/photos but no staff/password/session/pairing verification rows or secret files. Restore validates archives/integrity, makes a safety backup, preserves current local accounts/device identity and clears sessions; failures restore previous records/photos. Paired/folder-synced recovery requires reconciliation. Raw database/automatic snapshots can contain local password hashes and account metadata; protect every backup.
+
+Finish sync & disconnect server is for permanent retirement after all nodes stop trading and reconcile. It verifies a final exchange and backup before switching this node to local operation. Configure the same shared folder on reconciled nodes afterward. For a temporary VM shutdown, keep pairing and simply resume exchange when the server returns. A retained credential can resume the same business using Update server address.
+
+WhatsApp sends require an approved account, acceptable sender quality, supported/fresh approved templates for their purpose, consent and genuine service windows. New consent/changed mobiles require evidence notes. Restrictions/expired credentials pause sending. Batches and recipients are paced; promotional offers have a one-per-recipient/day app cap. Human-support commands route to the shop. Catalogue publication needs an owner review and is invalidated by changed product details. Regulated goods are excluded from this shop catalogue.
+
+As of 6 October 2026 the business account review is pending and hosted sending is off. Live production validation is blocked until account restoration, credential rotation, approved branded templates, signed webhook subscription, owned catalogue linking and a genuine cart/delivery/STOP check. Read [policy mapping](docs/WHATSAPP-POLICY.md), [handover](docs/HANDOVER.md) and [release notes](RELEASE-NOTES.md). Guardrails reduce risk; they do not guarantee that Meta will never restrict an account.
+
+Periodic snapshot retention keeps the latest eight plus one per latest seven recorded days. Manual/update/recovery snapshots remain until the owner archives them. Photos are included; keep an external copy and monitor storage.

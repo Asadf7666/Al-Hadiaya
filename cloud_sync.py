@@ -293,8 +293,25 @@ def change_server(shop,data):
     url=origin(data.get('url',''))
     with shop.cloud_lock,shop.lock:
         with shop.connect() as db:s=shop.settings(db);key=credential(shop)
-        if not s.get('cloud_url') or not key.get('token'):raise ValueError('Pair this node first.')
+        if not key.get('token') or not s.get('cloud_business_id'):raise ValueError('Pair this node first.')
         reply=request(url,'/api/device-sync',{'business_id':s['cloud_business_id'],'events':[],'cursor':s.get('cloud_cursor',0),'protocol':5},key['token'])
         if reply['business_id']!=s['cloud_business_id']:raise ValueError('This address belongs to another business.')
-        with shop.connect() as db:db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(url),'cloud_url'))
+        with shop.connect() as db:
+            db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(url),'cloud_url'))
+            db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(''),'sync_folder'))
     return {'message':'Server address verified and updated. Existing records and pending transactions are preserved.'}
+
+def disconnect(shop,data):
+    if data.get('confirm')!='DISCONNECT':raise ValueError('Type DISCONNECT after all nodes have stopped billing and completed their final exchange.')
+    with shop.cloud_lock:
+        with shop.connect() as db:
+            db.executescript(DDL)
+            if not shop.settings(db).get('cloud_url'):raise ValueError('This PC is not connected to a server.')
+        result=_sync_desktop(shop)
+        if result['pending'] or result['more']:raise ValueError('Finish exchanging all pending records and resolve conflicts before disconnecting.')
+        with shop.lock,shop.connect() as db:
+            if db.execute('SELECT 1 FROM sync_errors').fetchone():raise ValueError('Resolve sync conflicts before disconnecting.')
+            safety=shop.backup(local_only=True)
+            db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(''),'cloud_url'))
+            shop.audit(db,'server_disconnected',{'safety_backup':safety['paths'][0]})
+    return {'message':'Final server exchange and backup completed. Billing remains offline. Configure the same shared folder on every reconciled node to continue exchange without a server.'}

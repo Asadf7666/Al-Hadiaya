@@ -17,110 +17,9 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from app import Shop,ROOT
 
-ROLES={'owner','manager','cashier','viewer'}
-MANAGER={'product','party','recipe','purchase','payment','expense','transfer','adjust','reverse','import_products','sale','trade_order_status','trade_order_reprice','inventory_plan','purchase_order_create','purchase_order_status'}
-CASHIER={'sale','party','expense'}
-SETTINGS={'name','address','phone','gstin','state','gst_enabled','invoice_prefix','printer'}
-def password_hash(password,salt=None):
-    salt=salt or secrets.token_hex(16)
-    return salt,hashlib.pbkdf2_hmac('sha256',password.encode(),bytes.fromhex(salt),600000).hex()
-
-class Online:
-    def __init__(self,folder,origin,secure=True):
-        self.shop=Shop(folder);self.origin=origin.rstrip('/');self.secure=secure
-        from cloud_sync import Hub
-        self.hub=Hub(self.shop)
-        self.failed={};self.order_attempts={};self.lock=threading.RLock()
-        with self.shop.connect() as db:
-            db.executescript('''CREATE TABLE IF NOT EXISTS web_users(id INTEGER PRIMARY KEY,username TEXT UNIQUE,name TEXT,role TEXT,location TEXT,salt TEXT,password_hash TEXT,active INTEGER DEFAULT 1);
-            CREATE TABLE IF NOT EXISTS web_sessions(digest TEXT PRIMARY KEY,user_id INTEGER REFERENCES web_users(id),csrf TEXT,expires REAL);
-            CREATE TABLE IF NOT EXISTS web_audit(id INTEGER PRIMARY KEY,created REAL,user_id INTEGER,action TEXT);''')
-    def user(self,data):
-        name=str(data.get('username','')).strip().lower()
-        if not name or len(name)>64 or any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789_.-' for c in name):raise ValueError('Use a username of letters, numbers, dots, hyphens or underscores.')
-        role=data.get('role','cashier');location=data.get('location','Warehouse')
-        if role not in ROLES or location not in ('Warehouse','Outlet'):raise ValueError('Choose a valid role and location.')
-        password=str(data.get('password',''))
-        if len(password)<12:raise ValueError('Use a password of at least 12 characters.')
-        salt,digest=password_hash(password)
-        with self.shop.lock,self.shop.connect() as db:
-            db.execute('INSERT INTO web_users(username,name,role,location,salt,password_hash) VALUES(?,?,?,?,?,?)',(name,str(data.get('name') or name),role,location,salt,digest))
-    def login(self,username,password,ip):
-        with self.lock:
-            recent=[t for t in self.failed.get(ip,[]) if time.time()-t<60]
-            self.failed[ip]=recent
-            if len(recent)>=8:return None
-            if len(self.failed)>10000:self.failed={ip:recent}
-            with self.shop.connect() as db:
-                user=db.execute('SELECT * FROM web_users WHERE username=? AND active=1',(username.strip().lower(),)).fetchone()
-                salt=user['salt'] if user else '00'*16
-                valid=user and hmac.compare_digest(password_hash(password,salt)[1],user['password_hash'])
-                if not valid:
-                    # Hash even unknown usernames to reduce timing differences.
-                    if not user:password_hash(password,salt)
-                    recent.append(time.time());return None
-                token=secrets.token_urlsafe(32);csrf=secrets.token_urlsafe(32)
-                db.execute('DELETE FROM web_sessions WHERE expires<?',(time.time(),))
-                db.execute('INSERT INTO web_sessions VALUES(?,?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),user['id'],csrf,time.time()+4*3600))
-                db.execute('INSERT INTO web_audit(created,user_id,action) VALUES(?,?,?)',(time.time(),user['id'],'login'))
-                return token
-    def session(self,cookie):
-        c=SimpleCookie()
-        try:c.load(cookie or '')
-        except Exception:return None
-        token=c.get('ah_session')
-        if not token:return None
-        with self.shop.connect() as db:
-            row=db.execute('SELECT u.id,u.username,u.name,u.role,u.location,s.csrf,s.digest FROM web_sessions s JOIN web_users u ON u.id=s.user_id WHERE s.digest=? AND s.expires>? AND u.active=1',(hashlib.sha256(token.value.encode()).hexdigest(),time.time())).fetchone()
-            return dict(row) if row else None
-    def state(self,user):
-        result=self.shop.state();s=result['settings'];allocated=result['allocations']
-        for key in ('sync_folder','backup_folder','last_backup','last_sync'):s[key]=''
-        result['local']=False;result['online']=True;result['web_user']={k:user[k] for k in ('username','name','role','location')}
-        s['device_location']=user['location']
-        if user['role']!='owner':
-            result['whatsapp_sessions']=[];result['commerce_products']=[];result['media_assets']=[];result['catalogue_products']=[];result['catalogue_orders']=[];result['internal_contacts']=[];result['notifications']=[];result['campaigns']=[];result['whatsapp_templates']=[];result['whatsapp_webhook_configured']=False;result['whatsapp_token_configured']=False
-            for key in tuple(s):
-                if key.startswith('whatsapp_'):s[key]=False if isinstance(s[key],bool) else ''
-            result['devices']=[];result['allocations']=[];result['sync_errors']=[]
-        if user['role'] in ('cashier','viewer'):
-            result['trade_orders']=[];result['purchase_orders']=[];result['inventory_plans']=[];result['inventory_planning']=[];result['stock_alerts']=[]
-            result['stocks']=[r for r in result['stocks'] if r['location']==user['location']]
-            for p in result['products']:
-                p['stock']=sum(r['quantity'] for r in result['stocks'] if r['product_id']==p['id'])
-                p['cost']=0
-            result['documents']=[d for d in result['documents'] if d['location']==user['location'] and d['kind']=='sale']
-            ids={d['id'] for d in result['documents']}
-            result['lines']=[r for r in result['lines'] if r['document_id'] in ids]
-            result['movements']=[r for r in result['movements'] if r['location']==user['location']]
-            result['payments']=[];result['expenses']=[]
-            result['parties']=[p for p in result['parties'] if p['kind']=='customer']
-        return result
-    def act(self,user,action,data):
-        role=user['role']
-        if role=='viewer':raise PermissionError('This account is read-only.')
-        if role=='cashier' and action not in CASHIER:raise PermissionError('Cashier permission does not allow this operation.')
-        if role=='manager' and action not in MANAGER:raise PermissionError('Owner permission is required.')
-        if action in ('sync','shutdown','cloud_pair','cloud_address'):
-            raise ValueError('This local-device operation is unavailable in the hosted review.')
-        if action=='settings':data={k:v for k,v in data.items() if k in SETTINGS}
-        if role in ('manager','cashier'):
-            if action in ('sale','purchase','expense','adjust','product'):data['location']=user['location']
-            if action=='import_products':
-                data['rows']=[{**row,'location':user['location']} for row in data.get('rows',[])]
-            if action=='transfer' and data.get('source')!=user['location']:raise PermissionError('Transfer stock from your assigned location.')
-            if action=='reverse':
-                with self.shop.connect() as db:
-                    doc=db.execute('SELECT location FROM documents WHERE id=?',(data.get('id'),)).fetchone()
-                    if not doc or doc['location']!=user['location']:raise PermissionError('This invoice belongs to another location.')
-        if role=='cashier' and action=='party':
-            if data.get('kind')!='customer':raise PermissionError('Cashiers can create customer profiles only.')
-            with self.shop.connect() as db:
-                old=db.execute('SELECT credit_limit FROM parties WHERE id=?',(data.get('id'),)).fetchone()
-            data['credit_limit']=(old['credit_limit']/100) if old else 0
-        result=self.shop.act(action,data)
-        with self.shop.connect() as db:db.execute('INSERT INTO web_audit(created,user_id,action) VALUES(?,?,?)',(time.time(),user['id'],action))
-        return result
+from staff_access import StaffAccess,password_hash
+class Online(StaffAccess):
+    pass
 
 LOGIN='''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Al Hadiya · Staff sign in</title><link rel="stylesheet" href="/style.css"><body style="display:grid;place-items:center;min-height:100vh;background:#f6f6ef"><main class="card" style="max-width:430px;padding:36px;margin:20px"><div class="eyebrow">AL HADIYA TRADERS</div><h1>Welcome back.</h1><p>Sign in to your business workspace.</p><form method="post" action="/login"><label>Username</label><input name="username" autocomplete="username" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><button class="btn gold" style="margin-top:24px;width:100%">Sign in</button></form><p style="color:#ac3333">{error}</p><small>Temporary review · use test data only.</small><p><a href="/">← Visit our website</a></p></main></body></html>'''
 class Handler(BaseHTTPRequestHandler):
@@ -156,12 +55,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not r or (not user and not public_asset(self.online.shop,ident)):return self.send(404,{'error':'Image not found.'})
                 return self.send(200,asset_path(self.online.shop,ident).read_bytes(),r['mime'])
             except (ValueError,OSError):return self.send(404,{'error':'Image not found.'})
-        if path=='/health':return self.send(200,{'status':'ok'})
+        if path=='/health':return self.send(200,{'status':'ok','version':(ROOT/'VERSION').read_text().strip()})
         if path=='/webhooks/whatsapp':
             from outreach import challenge
             try:return self.send(200,challenge(self.online.shop,parse_qs(urlparse(self.path).query)),'text/plain')
             except PermissionError:return self.send(403,{'error':'Webhook verification failed.'})
-        downloads={'/downloads/AlHidayaTraders-Setup-0.8.1.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-0.8.1.zip':'application/zip'}
+        downloads={'/downloads/AlHidayaTraders-Setup-1.0.0.exe':'application/octet-stream','/downloads/SHA256SUMS.txt':'text/plain','/downloads/AlHidayaTraders-source-1.0.0.zip':'application/zip'}
         if path in downloads:
             file=ROOT/'dist'/Path(path).name
             if not file.is_file():return self.send(404,{'error':'Download is being prepared.'})
@@ -184,6 +83,9 @@ class Handler(BaseHTTPRequestHandler):
             from whatsapp_orders import feed
             try:return self.send(200,feed(self.online.shop,self.online.origin),'text/csv; charset=utf-8',{'Content-Disposition':'attachment; filename=al-hadiya-commerce.csv'})
             except ValueError as e:return self.send(400,{'error':str(e)})
+        if path=='/api/backup-bundle':
+            if user['role']!='owner':return self.send(403,{'error':'Owner permission required.'})
+            return self.send(200,__import__('backup_bundle').bundle(self.online.shop),'application/zip',{'Content-Disposition':'attachment; filename=AlHadiya-business-backup.zip'})
         if path=='/api/backup-download':
             if user['role']!='owner':return self.send(403,{'error':'Owner permission required.'})
             file=Path(self.online.shop.backup(local_only=True)['paths'][0])
@@ -248,6 +150,9 @@ class Handler(BaseHTTPRequestHandler):
             if not user:return self.send(401,{'error':'Sign in again.'})
             if not hmac.compare_digest(self.headers.get('X-Shop-Token',''),user['csrf']):return self.send(403,{'error':'Session verification failed.'})
             data=json.loads(raw)
+            if not isinstance(data,dict):raise ValueError('Expected a JSON object.')
+            data={k:v for k,v in data.items() if not k.startswith('_request_')}
+            data['_request_id']=self.headers.get('X-Request-ID','');data['_request_actor']=str(user['id'])+':'+user['role']
             if path=='/api/logout':
                 with self.online.shop.connect() as db:db.execute('DELETE FROM web_sessions WHERE digest=?',(user['digest'],))
                 return self.send(200,{'ok':True},headers={'Set-Cookie':'ah_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'+('; Secure' if self.online.secure else '')})
@@ -266,11 +171,15 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/staff_user':
                 if user['role']!='owner':raise PermissionError('Owner permission required.')
                 self.online.user(data);return self.send(200,{'ok':True})
+            if path=='/api/staff_password':
+                if user['role']!='owner':raise PermissionError('Owner permission required.')
+                self.online.password(data);return self.send(200,{'ok':True})
+            if path=='/api/staff_enable':
+                if user['role']!='owner':raise PermissionError('Owner permission required.')
+                self.online.active(user,data['id'],True);return self.send(200,{'ok':True})
             if path=='/api/staff_disable':
                 if user['role']!='owner':raise PermissionError('Owner permission required.')
-                if int(data['id'])==user['id']:raise ValueError('You cannot disable your current owner account.')
-                with self.online.shop.connect() as db:
-                    db.execute('UPDATE web_users SET active=0 WHERE id=?',(int(data['id']),));db.execute('DELETE FROM web_sessions WHERE user_id=?',(int(data['id']),))
+                self.online.active(user,data['id'],False)
                 return self.send(200,{'ok':True})
             if not path.startswith('/api/'):return self.send(404,{'error':'Not found'})
             self.send(200,self.online.act(user,path[5:],data))
@@ -296,18 +205,16 @@ def main():
         last_backup=last_templates=0
         while True:
             time.sleep(10)
-            try:
-                if time.time()-last_backup>=300:
-                    online.shop.backup(local_only=True);last_backup=time.time()
-                    online.shop.daily_update()
-                with online.shop.connect() as db:enabled=online.shop.settings(db)['whatsapp_enabled']
-                if enabled and time.time()-last_templates>=600:
-                    from outreach import refresh_templates
-                    try:refresh_templates(online.shop)
-                    except Exception:pass
-                    last_templates=time.time()
-                from notifications import process_outbox
-                process_outbox(online.shop)
-            except Exception:pass
+            from health import run
+            if time.time()-last_backup>=300:
+                run(online.shop,'backup',lambda:online.shop.backup(local_only=True,automatic=True));last_backup=time.time()
+                run(online.shop,'daily_summary',lambda:online.shop.daily_update())
+            with online.shop.connect() as db:enabled=online.shop.settings(db)['whatsapp_enabled']
+            if enabled and time.time()-last_templates>=600:
+                from outreach import refresh_templates
+                run(online.shop,'templates',lambda:refresh_templates(online.shop));last_templates=time.time()
+            from notifications import process_outbox
+            run(online.shop,'whatsapp',lambda:process_outbox(online.shop))
+
     threading.Thread(target=periodic,daemon=True).start();server.serve_forever()
 if __name__=='__main__':main()

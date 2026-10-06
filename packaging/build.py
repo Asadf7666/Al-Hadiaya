@@ -28,8 +28,10 @@ def main():
     with zipfile.ZipFile(archive) as z:z.extractall(runtime)
     (ROOT/'dist').mkdir(exist_ok=True)
     subprocess.run([compiler,'launcher.nsi'],cwd=ROOT/'packaging',check=True)
-    subprocess.run([compiler,'installer.nsi'],cwd=ROOT/'packaging',check=True)
-    setup=ROOT/'dist'/'AlHidayaTraders-Setup-0.8.1.exe'
+    product_version=(ROOT/'VERSION').read_text().strip()
+    version_define=('/D' if os.name=='nt' else '-D')+'PRODUCT_VERSION='+product_version
+    subprocess.run([compiler,version_define,'installer.nsi'],cwd=ROOT/'packaging',check=True)
+    setup=ROOT/'dist'/('AlHidayaTraders-Setup-'+(ROOT/'VERSION').read_text().strip()+'.exe')
     digest=hashlib.sha256(setup.read_bytes()).hexdigest()
     (setup.parent/'SHA256SUMS.txt').write_text(digest+'  '+setup.name+'\n')
     print('Built:',setup,'\nSHA-256:',digest)

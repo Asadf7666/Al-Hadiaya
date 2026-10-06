@@ -52,7 +52,7 @@ class ConnectionTests(unittest.TestCase):
   self.assertEqual(self.quantity(self.web.shop),0);self.assertEqual(self.quantity(a),0);self.assertEqual(self.quantity(b),0)
  def test_profiles_relay_between_tills_and_reversal(self):
   a=self.till('a');b=self.till('b')
-  a.act('party',dict(name='Cafe customer',kind='customer',phone='9876543210',whatsapp_opt_in=True))
+  a.act('party',dict(name='Cafe customer',kind='customer',phone='9876543210',whatsapp_opt_in=True,whatsapp_consent_note='Customer explicitly requested receipt notifications'))
   bill=self.sale(a);a.sync();b.sync()
   self.assertEqual(b.state()['parties'][0]['name'],'Cafe customer')
   a.act('reverse',dict(id=bill,reason='Test cancellation'));a.sync();b.sync()

@@ -15,7 +15,7 @@ class MediaCatalogueTests(unittest.TestCase):
   self.pid=self.shop.act('product',{'name':'Test drink','sku':'TEST','category':'Cold drinks','kind':'stock','unit':'bottle','price':50,'cost':20,'stock':5,'minimum':0,'location':'Warehouse'})['id']
  def tearDown(self):self.tmp.cleanup()
  def publish(self):
-  self.shop.act('catalogue_product',{'product_id':self.pid,'asset_id':self.asset,'published':True})
+  self.shop.act('catalogue_product',{'product_id':self.pid,'asset_id':self.asset,'published':True,'policy_confirmed':True})
   self.shop.act('catalogue_settings',{'enabled':True,'banner':self.asset})
  def request(self,**kw):return dict(request_key=secrets.token_hex(16),name='Buyer',phone='9876543210',contact_consent=True,items=[{'id':self.pid,'quantity':2,'price':1}],**kw)
  def test_upload_validation_content_addressing_and_traversal(self):
@@ -28,7 +28,7 @@ class MediaCatalogueTests(unittest.TestCase):
   self.publish();p=public_state(self.shop)['products'][0];self.assertNotIn('cost',p);self.assertNotIn('stock',p);self.assertTrue(public_asset(self.shop,self.asset))
   with self.shop.connect() as db:db.execute('UPDATE products SET price=0 WHERE id=?',(self.pid,))
   self.assertEqual(public_state(self.shop)['products'],[])
-  with self.assertRaises(ValueError):self.shop.act('catalogue_product',{'product_id':self.pid,'asset_id':self.asset,'published':True})
+  with self.assertRaises(ValueError):self.shop.act('catalogue_product',{'product_id':self.pid,'asset_id':self.asset,'published':True,'policy_confirmed':True})
  def test_request_reprices_is_idempotent_and_leaves_ledgers_unchanged(self):
   self.publish();before=self.shop.state();data=self.request();one=order(self.shop,data);two=order(self.shop,data)
   self.assertEqual(one['id'],two['id']);self.assertEqual(one['total'],10000)
@@ -45,7 +45,7 @@ class MediaCatalogueTests(unittest.TestCase):
   self.assertEqual(len(set(ids)),1);self.assertEqual(len(self.shop.state()['catalogue_orders']),1)
  def test_image_approval_and_provider_payload_have_image_header(self):
   self.shop.act('whatsapp_settings',{'whatsapp_enabled':True,'whatsapp_phone_id':'123456','whatsapp_api_version':'v26.0','whatsapp_language':'en_US'})
-  cid=self.shop.act('party',{'name':'Buyer','kind':'customer','phone':'9876543210','whatsapp_marketing_opt_in':True})['id']
+  cid=self.shop.act('party',{'name':'Buyer','kind':'customer','phone':'9876543210','whatsapp_marketing_opt_in':True,'whatsapp_consent_note':'Customer explicitly requested offers during test signup'})['id']
   with self.shop.connect() as db:
    db.execute('INSERT INTO whatsapp_templates(name,language,status,category,body,supported,checked,header_format,parameter_count) VALUES(?,?,?,?,?,?,?,?,?)',('photo','en_US','APPROVED','MARKETING','Hello {{1}}, {{2}}: {{3}}',1,dt.datetime.now(dt.timezone.utc).isoformat(),'IMAGE',3))
   data=dict(name='Image campaign',offer='Fresh drinks',template='photo',language='en_US',customer_ids=[cid])

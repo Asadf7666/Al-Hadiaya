@@ -9,9 +9,13 @@ from notifications import process_outbox,whatsapp_number
 
 class NotificationTests(unittest.TestCase):
     def setUp(self):
+        ready=patch('whatsapp_policy.sender_ready',return_value=(True,''));ready.start();self.addCleanup(ready.stop)
         self.tmp=tempfile.TemporaryDirectory()
         self.shop=Shop(Path(self.tmp.name))
         self.shop.act('whatsapp_settings',{'whatsapp_profiles':False,'whatsapp_catalogue':False,'whatsapp_stock':False,'whatsapp_recipes':False,'whatsapp_enabled':True,'whatsapp_phone_id':'123456','whatsapp_api_version':'v99.0','whatsapp_language':'en','whatsapp_internal_template':'internal_update','whatsapp_invoice_template':'invoice_update','whatsapp_low_stock':True,'whatsapp_transfers':True,'whatsapp_purchases':True,'whatsapp_daily_time':'00:00'})
+        with self.shop.connect() as db:
+            import datetime as dt
+            for t in ('internal_update','invoice_update'):db.execute('INSERT INTO whatsapp_templates(name,language,status,category,body,supported,checked) VALUES(?,?,?,?,?,?,?)',(t,'en','APPROVED','UTILITY','{{1}} {{2}} {{3}}',1,dt.datetime.now(dt.timezone.utc).isoformat()))
         self.shop.act('internal_contact',{'name':'Owner','phone':'9876543210','opt_in':True})
     def tearDown(self):self.tmp.cleanup()
     def test_transfer_and_purchase_queue_internal_updates(self):
@@ -55,7 +59,7 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(self.shop.state()['notifications'][0]['status'],'queued')
     def test_customer_invoice_only_with_consent_and_optout_before_send(self):
         pid=self.shop.act('product',{'name':'Drink','sku':'DR','category':'Cold drinks','kind':'stock','unit':'bottle','price':50,'cost':20,'stock':5,'minimum':0,'location':'Outlet'})['id']
-        cid=self.shop.act('party',{'name':'Customer','kind':'customer','phone':'9876543211','whatsapp_opt_in':True})['id']
+        cid=self.shop.act('party',{'name':'Customer','kind':'customer','phone':'9876543211','whatsapp_opt_in':True,'whatsapp_consent_note':'Customer explicitly requested receipts during test checkout'})['id']
         self.shop.act('sale',{'items':[{'product_id':pid,'quantity':1}],'party_id':cid,'payment':'Cash','location':'Outlet'})
         invoices=[r for r in self.shop.state()['notifications'] if r['kind']=='invoice']
         self.assertEqual(len(invoices),1)

@@ -17,8 +17,11 @@ try:
     if running():
         # Ignore system proxies for strictly local installer communication.
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open('http://127.0.0.1:8765/api/session',timeout=3) as r:
-            token = json.load(r)['token']
+        from notifications import protect
+        control=DATA/'maintenance-credential.bin'
+        if control.exists():token=protect(control.read_bytes(),decrypt=True).decode()
+        else:
+            with opener.open('http://127.0.0.1:8765/api/session',timeout=3) as r:token=json.load(r)['token']
         req = urllib.request.Request('http://127.0.0.1:8765/api/shutdown',data=b'{}',headers={'X-Shop-Token':token,'Content-Type':'application/json'})
         with opener.open(req,timeout=10) as r:
             json.load(r)

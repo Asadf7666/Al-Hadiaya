@@ -59,6 +59,15 @@ Version 0.8.1 changes presentation to bold WhatsApp headings, paragraph-separate
 
 ### Revised 0.8.1 examples
 
-Meta accepted six new session-message examples after the layout update: Purchase, Sale, Profile, Procurement, Daily summary / stock planning, and a separate Stock alert. Each message uses an isolated financial fixture and a clear demo label. Receipt/readability of this revised set was not yet confirmed when this report was written. The preceding five-message set was confirmed received by the owner.
+Meta accepted six new session-message examples after the layout update: Purchase, Sale, Profile, Procurement, Daily summary / stock planning, and a separate Stock alert. Each message uses an isolated financial fixture and a clear demo label. The owner subsequently confirmed that the revised examples were much clearer. The preceding five-message set was also confirmed received by the owner.
 
 The 0.8.1 hosted app passed browser checks without JavaScript errors; all 89 automated tests passed. The hosted installer and source download SHA-256 hashes were verified. Windows installer execution remains unverified. No native Commerce ordering, webhook receipt or outside-window template delivery was confirmed by these tests.
+
+
+## 6 October 2026 — account restriction and v1
+
+Meta's business and test account review-status reads returned REJECTED. The owner has requested review. Automated sending on the hosted app is disabled; no further live message tests are authorized to proceed during this restriction. Historical API acceptances and earlier user receipts below/above do not establish current production readiness.
+
+A read-only review of the application's last 48 hours found 48 notification records, 30 provider-message IDs and no HTTP 429 records. Nine accepted-message rows were created within one minute; those are queue creation times, not actual send times, so they do not establish a send rate. Recorded error codes include HTTP 404 and an expired-token 401/code 190. The records exclude unrecorded activity and do not establish the cause of restriction. The notice identifies acceptable-use terms without a specific trigger.
+
+V1 adds fixture-tested sender/quality, template, consent, opt-out, pacing, content and catalogue controls. See the policy mapping. Genuine native catalogue/cart, signed live webhook, approved branded-template and restored-account tests remain blocked rather than reported as passed.

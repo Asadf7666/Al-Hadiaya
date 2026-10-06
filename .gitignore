@@ -14,3 +14,5 @@ REVIEW-RESOURCES.json
 review-access.json
 cloud/data/
 *.log
+*.png
+*.jpg

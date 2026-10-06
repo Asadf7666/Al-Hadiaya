@@ -1,4 +1,14 @@
-# Verification history and current pilot 0.4.0
+# Verification history
+
+## Version 1.0.0 review build — 6 October 2026
+
+107 automated Python checks passed in the Linux workspace, including local staff authentication and permissions, request replay after a lost response, verified portable backups and guarded restoration, backup retention, consent evidence, catalogue publication reviews, account/quality pauses, template categories and outbound pacing. Provider calls use fixtures; no live WhatsApp messages were sent during this v1 work.
+
+Chromium passed first-owner setup and offline login, reloaded bill drafts and retry-safe checkout, staff permissions and mobile navigation, native-order confirmation to a linked POS invoice with case quantities, purchase-order approval and partial goods receipt, and café POS. The café check sold two coffees at the Outlet, produced a walk-in UPI bill and deducted the exact recipe ingredients. No JavaScript exceptions occurred in these checks.
+
+The NSIS installer compiles with the pinned embedded Python runtime. The Windows release workflow runs the test suite and an actual isolated install → first-owner setup → sale → update → login/data preservation → uninstall/data preservation check before publishing. Its result must be checked for the particular release; Linux compilation alone does not establish Windows execution.
+
+Physical printer/scanner checks, code signing, a full shop shift, accountant review of tax treatment, real folder-provider transport, production Meta account/templates/catalogue/webhooks and hardware crash/power-loss validation remain deployment gates. The Windows installer is unsigned. WhatsApp is paused while the account review is pending; see docs/WHATSAPP-POLICY.md. Prior review-host expiry instructions below are historical and have been cancelled; stopping the retained host is distinct from deleting it.
 
 Executed in the Linux build workspace on 5 October 2026.
 

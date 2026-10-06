@@ -40,13 +40,15 @@ def price_lines(db,raw,catalog_id):
   rid=str(item.get('product_retailer_id',''))[:100];quantity=Decimal(str(item.get('quantity',0)))
   if not quantity.is_finite() or quantity!=quantity.to_integral_value() or not 1<=quantity<=1000 or rid in seen:raise ValueError('Invalid WhatsApp cart quantity or duplicate item.')
   seen.add(rid);q=int(quantity)
-  mapping=db.execute('SELECT m.*,p.name,p.price,p.wholesale_price,p.kind FROM commerce_products m JOIN products p ON p.id=m.product_id WHERE m.catalog_id=? AND m.retailer_id=? AND m.active=1',(catalog_id,rid)).fetchone()
+  mapping=db.execute('SELECT m.*,p.name,p.category,p.brand,p.price,p.wholesale_price,p.kind FROM commerce_products m JOIN products p ON p.id=m.product_id WHERE m.catalog_id=? AND m.retailer_id=? AND m.active=1',(catalog_id,rid)).fetchone()
   currency=str(item.get('currency',''))
   quoted=Decimal(str(item.get('item_price',0)))
   if not quoted.is_finite() or quoted<0:raise ValueError('Invalid quoted price.')
   line={'retailer_id':rid,'catalogue_quantity':q,'quoted_price':str(quoted),'currency':currency}
   if not mapping:issues.append('Unmapped catalogue item: '+rid);line.update(name=rid,product_id=None,quantity=q,price=0,tier='retail')
   else:
+   try:__import__('whatsapp_policy').product_allowed(mapping)
+   except ValueError:issues.append('Catalogue policy review required for '+mapping['name'])
    unit_price=mapping['wholesale_price'] if mapping['price_tier']=='wholesale' and mapping['wholesale_price']>0 else mapping['price']
    units=mapping['units'];base_quantity=q*units
    line.update(name=mapping['name'],product_id=mapping['product_id'],quantity=base_quantity,price=unit_price,tier=mapping['price_tier'])
@@ -107,7 +109,9 @@ def inbound(db,shop,message,contacts):
    if row and row['status'] in ('new','needs_review','confirmed') and not row['invoice_id']:
     db.execute("UPDATE trade_orders SET status='cancelled',updated=? WHERE id=?",(stamp(),ident));notify(db,shop,db.execute('SELECT * FROM trade_orders WHERE id=?',(ident,)).fetchone());changed=True
    else:queue(db,shop,'cancel-help:'+mid,phone,'Staff must review cancellation of this order. Please contact the trading counter.',row['id'] if row else '')
-  elif upper=='HELP':queue(db,shop,'help:'+mid,phone,'Send MENU to browse and order. Send STATUS to check your latest order, or CANCEL WA-<order number> to request cancellation. Send STOP to stop messages.')
+  elif upper in ('HELP','HUMAN','AGENT','SUPPORT'):
+   s=shop.settings(db);support='Call '+s['phone'] if s['phone'] else 'Visit '+s['address'] if s['address'] else 'Contact the trading counter for a staff member.'
+   queue(db,shop,'help:'+mid,phone,'A staff member can help. '+support+'\nSend MENU to browse, STATUS to check your order, or STOP to stop messages.')
  return changed
 
 def act(shop,action,data):
@@ -120,6 +124,9 @@ def act(shop,action,data):
   with shop.connect() as db:db.execute("UPDATE settings SET value=? WHERE key='whatsapp_catalogue_checked'",(json.dumps(stamp()),))
   return {'linked':True,'cart_enabled':True}
  with shop.lock,shop.connect() as db:
+  from operation_guard import begin,finish
+  cached=begin(db,action,data)
+  if cached is not None:return cached
   before=shop.capture(db)
   if action=='commerce_settings':
    ident=str(data.get('catalog_id','')).strip()
@@ -132,8 +139,9 @@ def act(shop,action,data):
   elif action=='commerce_product':
    catalog_id=str(data.get('catalog_id','')).strip();rid=str(data.get('retailer_id','')).strip();pid=int(data['product_id']);units=int(data.get('units',1));tier=data.get('price_tier','retail')
    if not re.fullmatch(r'\d+',catalog_id) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,100}',rid) or not 1<=units<=1000 or tier not in ('retail','wholesale'):raise ValueError('Enter catalogue/SKU, whole pack units (1–1000) and price tier.')
-   p=db.execute('SELECT kind FROM products WHERE id=?',(pid,)).fetchone()
+   p=db.execute('SELECT * FROM products WHERE id=?',(pid,)).fetchone()
    if not p or p['kind']!='stock':raise ValueError('Choose a packaged trading product.')
+   __import__('whatsapp_policy').product_allowed(p)
    old=db.execute('SELECT id FROM commerce_products WHERE catalog_id=? AND retailer_id=?',(catalog_id,rid)).fetchone();ident=old[0] if old else secrets.randbelow(2**50)+1
    db.execute('INSERT INTO commerce_products VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET product_id=excluded.product_id,units=excluded.units,price_tier=excluded.price_tier,active=excluded.active',(ident,catalog_id,rid,pid,units,tier,int(data.get('active') in (True,'on'))))
   elif action=='trade_order_reprice':
@@ -144,7 +152,8 @@ def act(shop,action,data):
   elif action=='trade_order_status':
    row=db.execute('SELECT * FROM trade_orders WHERE id=?',(str(data.get('id','')),)).fetchone();status=data.get('status')
    if not row or status not in STATUSES or status=='needs_review':raise ValueError('Choose a valid order and status.')
-   if status==row['status']:return {'saved':True}
+   if status==row['status']:
+    finish(db,action,data,{'saved':True});return {'saved':True}
    if row['status'] in ('completed','cancelled'):raise ValueError('Closed orders cannot be reopened. Review the invoice or create a new order.')
    if row['invoice_id'] and status=='cancelled':raise ValueError('Reverse the invoice through normal accounts controls; invoiced orders cannot be cancelled here.')
    transitions={'new':('confirmed','cancelled'),'needs_review':('confirmed','cancelled'),'confirmed':('packing','cancelled'),'packing':('ready','cancelled'),'ready':('completed','cancelled')}
@@ -160,13 +169,15 @@ def act(shop,action,data):
   else:raise ValueError('Unknown WhatsApp order action.')
   shop.audit(db,action,data);shop.record_event(db,before)
   if action.startswith('trade_order_'):notify(db,shop,db.execute('SELECT * FROM trade_orders WHERE id=?',(data['id'],)).fetchone())
+  finish(db,action,data,{'saved':True})
  return {'saved':True}
 def feed(shop,origin):
  if not origin.startswith('https://'):raise ValueError('Use the hosted HTTPS catalogue to export a Meta feed.')
  with shop.connect() as db:
   s=shop.settings(db)
   if not s['catalogue_enabled']:raise ValueError('Enable public product photos in Catalogue settings first.')
-  rows=db.execute("SELECT m.*,p.name,p.brand,p.price,p.wholesale_price,p.kind,c.description,c.asset_id,COALESCE(st.quantity,0) quantity FROM commerce_products m JOIN products p ON p.id=m.product_id JOIN catalogue_products c ON c.product_id=p.id LEFT JOIN stocks st ON st.product_id=p.id AND st.location='Warehouse' WHERE m.active=1 AND m.catalog_id=? AND c.published=1 AND p.kind='stock' AND p.price>0",(s['whatsapp_catalogue_id'],)).fetchall()
+  rows=db.execute("SELECT m.*,p.name,p.brand,p.category,p.price,p.wholesale_price,p.kind,c.description,c.asset_id,COALESCE(st.quantity,0) quantity FROM commerce_products m JOIN products p ON p.id=m.product_id JOIN catalogue_products c ON c.product_id=p.id LEFT JOIN stocks st ON st.product_id=p.id AND st.location='Warehouse' WHERE m.active=1 AND m.catalog_id=? AND c.published=1 AND p.kind='stock' AND p.price>0",(s['whatsapp_catalogue_id'],)).fetchall()
+  rows=[r for r in rows if __import__('whatsapp_policy').catalogue_ready(db,{'id':r['product_id'],**{k:r[k] for k in ('name','brand','category','price','kind')}},r['asset_id'],r['description'])]
  out=io.StringIO();writer=csv.writer(out);writer.writerow(['id','title','description','availability','condition','price','link','image_link','brand'])
  for r in rows:
   price=(r['wholesale_price'] if r['price_tier']=='wholesale' and r['wholesale_price']>0 else r['price'])*r['units']

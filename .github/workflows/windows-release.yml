@@ -1,0 +1,45 @@
+name: Windows release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Verify business and policy controls
+        run: python -m unittest discover -s tests -q
+      - name: Install NSIS
+        run: choco install nsis --yes --no-progress
+      - name: Build verified embedded runtime installer
+        run: python packaging/build.py
+      - name: Execute Windows install and update checks
+        run: python tools/windows_install_check.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlHidayaTraders-Windows
+          path: dist/*
+      - name: Publish the versioned download after checks pass
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $releaseVersion = (Get-Content VERSION).Trim()
+          $releaseTag = "v$releaseVersion"
+          gh release view $releaseTag --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Output "Version already released; keeping its verified installer unchanged. Bump VERSION for a new release."
+            exit 0
+          } else {
+            gh release create $releaseTag --target $env:GITHUB_SHA --repo $env:GITHUB_REPOSITORY --title "Al Hadiya Traders $releaseVersion" --notes-file RELEASE-NOTES.md
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          gh release upload $releaseTag "dist/AlHidayaTraders-Setup-$releaseVersion.exe" "dist/SHA256SUMS.txt" --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

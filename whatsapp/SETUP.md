@@ -82,3 +82,8 @@ Use Photo catalogue & order requests to select a product, upload a photo, write 
 6. Upgrade all Windows installations to 0.7 before sync; protocol 4 includes shared orders. The test sender works only with verified test recipients and does not prove that an owned Commerce catalogue can be connected to it. Production onboarding may require your real business number; confirm that path in Meta.
 
 Native browsing/ordering cannot be demonstrated until Meta catalogue linkage and signed inbound webhook setup are complete. The web catalogue remains available while those prerequisites are completed.
+
+
+## v1 account review and policy controls
+
+Keep automated sending disabled while the current Meta review is pending. Rotate the App Secret and tokens exposed in chat and enter replacements directly in the app. App credentials do not override account restrictions. The sender validates account review/number quality and approved template purpose/freshness before sending. Record new customer consent evidence, respect opt-outs and publish only reviewed genuine catalogue products. Read [policy mapping](../docs/WHATSAPP-POLICY.md) and [handover](../docs/HANDOVER.md). Production activation still needs account restoration, approved branded templates, signed messages webhook, owned Commerce catalogue linkage and one bounded genuine cart/delivery/STOP test.
