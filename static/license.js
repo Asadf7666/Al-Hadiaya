@@ -1,6 +1,4 @@
-/* Licence page and reminders for the Windows app. Loaded after team.js. */
-pages.licence='Licence';
-iconPaths.licence='M12 2l8 3v6c0 5-3.4 9.3-8 11-4.6-1.7-8-6-8-11V5z M8.5 12l2.5 2.5 4.5-5';
+/* Licence screen for the Windows app, reached from Settings. Loaded after team.js. */
 let licenceDraft='';
 const licencePageAllowed=pageAllowed;
 pageAllowed=function(name){return name==='licence'||licencePageAllowed(name)};
@@ -15,7 +13,7 @@ function licenceDays(l){
 function licencePage(){
   const l=S.licence,owner=S.web_user.role==='owner',has=!!l.licence_id;
   const daysFoot=l.status==='trial'?`of ${l.trial_days} trial days`:l.status==='grace'?'days of grace left':l.status==='licensed'&&l.days_left===null?'Perpetual licence':'days remaining';
-  return heading('LICENCE','One licence, this PC.',esc(l.message),`<span class="pill ${licenceTone(l)} licence-pill">${licenceLabel(l)}</span>`)
+  return heading('LICENCE','One licence, this PC.',esc(l.message),`<span class="pill ${licenceTone(l)} licence-pill">${licenceLabel(l)}</span>${owner?'<button class="btn secondary small" onclick="navTo(\'settings\')">← Settings</button>':''}`)
   +`<div class="stats">${stat('Status',licenceLabel(l),'◈',l.writable?'All functions available':'Read-only until licensed')}${stat('Days remaining',licenceDays(l),'◷',daysFoot)}${stat('Licensed to',esc(l.customer||'—'),'❏',has?esc(l.edition)+' edition':'No licence installed')}${stat('Expires',esc(l.expires||(has?'Never':'—')),'▣',has?'Licence '+esc(l.licence_id):'Trial ends automatically')}</div>`
   +(l.problem?`<div class="licence-bar red" role="alert"><span>${esc(l.problem)}</span></div>`:'')
   +`<div class="settings-layout"><div class="card"><div class="card-head"><h2>Installation ID</h2><button class="btn secondary small" onclick="copyInstallationId()">Copy</button></div><div class="card-content"><div class="licence-id" id="installation-id">${esc(l.installation_id)}</div><div class="help">Send this ID to your supplier. The licence file you receive works on this PC only and needs no internet.</div></div></div>`
@@ -43,22 +41,24 @@ async function copyInstallationId(){
   try{await navigator.clipboard.writeText(id);toast('Installation ID copied.')}
   catch{const r=document.createRange();r.selectNodeContents($('#installation-id'));const s=getSelection();s.removeAllRanges();s.addRange(r);toast('Press Ctrl+C to copy the selected ID.')}
 }
+function licenceSettingsCard(l){
+  return `<div class="card" id="licence-card"><div class="card-head"><h2>Licence</h2><span class="pill ${licenceTone(l)}">${licenceLabel(l)}</span></div><div class="card-content"><div class="licence-summary"><span>${esc(l.message)}</span><button type="button" class="btn secondary" onclick="navTo('licence')">Manage licence</button></div></div></div>`;
+}
 const licenceRender=render;
 render=function(){
   if(!S)return;
   const l=S.licence;
-  if(!l){delete pages.licence;if(page==='licence')page='overview';return licenceRender()}
+  // The stylesheet highlights Settings while its licence screen is open.
+  document.body.classList.toggle('licence-open',!!l&&page==='licence');
+  if(!l){if(page==='licence')page='overview';return licenceRender()}
   if(page==='licence'){
-    const keep=page;page='overview';licenceRender();page=keep;
-    document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',(b.getAttribute('onclick')||'').includes("'licence'")));
-    $('#page-label').textContent=pages.licence;$('#main').innerHTML=licencePage();
-  }else{
-    licenceRender();
-    if(l.warn||!l.writable)$('#main').insertAdjacentHTML('afterbegin',`<div class="licence-bar ${licenceTone(l)}" role="status"><span><b>${licenceLabel(l)}.</b> ${esc(l.message)}</span><button class="btn secondary small" onclick="navTo('licence')">Manage licence</button></div>`);
+    // Drawn over its parent screen so Settings stays the highlighted section.
+    page=pageAllowed('settings')?'settings':'overview';licenceRender();page='licence';
+    $('#page-label').textContent='Settings & sync / Licence';$('#main').innerHTML=licencePage();
+    return;
   }
-  let chip=$('#licence-chip');
-  if(!chip){chip=document.createElement('button');chip.id='licence-chip';chip.onclick=()=>navTo('licence');$('.sidebar-bottom').insertBefore(chip,$('.sidebar-bottom .sync-button'))}
-  chip.className='licence-chip '+licenceTone(l);
-  chip.textContent=l.status==='licensed'?(l.days_left===null?'Licensed':`Licensed · ${l.days_left} days left`):l.status==='trial'?`Trial · ${l.trial_days_left} days left`:licenceLabel(l)+(l.writable?'':' · read-only');
+  licenceRender();
+  if(page==='settings')$('.settings-layout')?.insertAdjacentHTML('beforeend',licenceSettingsCard(l));
+  if(l.warn||!l.writable)$('#main').insertAdjacentHTML('afterbegin',`<div class="licence-bar ${licenceTone(l)}" role="status"><span><b>${licenceLabel(l)}.</b> ${esc(l.message)}</span><button class="btn secondary small" onclick="navTo('licence')">Manage licence</button></div>`);
 };
 if(S)render();

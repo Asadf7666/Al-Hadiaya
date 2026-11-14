@@ -52,7 +52,7 @@ def main():
     k=commands.add_parser('keygen');k.add_argument('--key',required=True);k.set_defaults(run=keygen)
     i=commands.add_parser('issue');i.add_argument('--key',required=True);i.add_argument('--customer',required=True)
     target=i.add_mutually_exclusive_group(required=True)
-    target.add_argument('--machine',help='Installation ID shown on the Licence page of the PC');target.add_argument('--any-machine',action='store_true',help='Not tied to one PC')
+    target.add_argument('--machine',help='Installation ID shown under Settings, Licence on the PC');target.add_argument('--any-machine',action='store_true',help='Not tied to one PC')
     i.add_argument('--days',type=int);i.add_argument('--expires',help='YYYY-MM-DD');i.add_argument('--perpetual',action='store_true')
     i.add_argument('--edition',default='Standard');i.add_argument('--id');i.add_argument('--out');i.set_defaults(run=issue)
     v=commands.add_parser('inspect');v.add_argument('file');v.set_defaults(run=inspect)

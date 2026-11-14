@@ -14,7 +14,7 @@ An owned Windows and web shop manager for an Indian trading warehouse/retail cou
 Each PC runs on one licence file, checked on the PC itself with no internet.
 
 - A new installation starts a 60-day trial with every function available.
-- Open **Licence**, copy the **Installation ID** and send it to your supplier. Install the `.lic` file you receive on that same page (owner only).
+- Open **Settings → Licence → Manage licence**, copy the **Installation ID** and send it to your supplier. Install the `.lic` file you receive on that same screen (owner only).
 - A licence is tied to the PC it was issued for. Reinstalling Windows or moving to another PC needs a new licence for the new Installation ID.
 - A reminder appears 14 days before expiry. After expiry there are 7 days of grace, then the app becomes read-only.
 - Read-only never locks records away: viewing, printing, exporting and backups keep working. New bills, purchases, stock changes and settings wait for a licence.

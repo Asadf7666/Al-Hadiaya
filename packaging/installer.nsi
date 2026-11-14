@@ -16,7 +16,7 @@ VIAddVersionKey "FileVersion" "${PRODUCT_VERSION}"
 VIAddVersionKey "ProductVersion" "${PRODUCT_VERSION}"
 VIAddVersionKey "LegalCopyright" "Al Hadiya Traders"
 !define MUI_WELCOMEPAGE_TITLE "Welcome to Al Hadiya Traders"
-!define MUI_WELCOMEPAGE_TEXT "Offline billing, warehouse stock and takeaway cafe management.$\r$\n$\r$\nThis app installs for your Windows account. Python is included. Updates back up your database before replacing application files.$\r$\n$\r$\nA 60-day trial is included. Install your licence file from the Licence page; no internet is needed.$\r$\n$\r$\nPlease close shop billing before updating. Verify your tax configuration, opening stock and printer before live trading."
+!define MUI_WELCOMEPAGE_TEXT "Offline billing, warehouse stock and takeaway cafe management.$\r$\n$\r$\nThis app installs for your Windows account. Python is included. Updates back up your database before replacing application files.$\r$\n$\r$\nA 60-day trial is included. Install your licence file under Settings, Licence; no internet is needed.$\r$\n$\r$\nPlease close shop billing before updating. Verify your tax configuration, opening stock and printer before live trading."
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
