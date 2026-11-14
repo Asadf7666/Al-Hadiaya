@@ -72,7 +72,7 @@ Folder and server sync cannot be enabled together. Never place the live SQLite d
 
 - POS product search and keyboard-input barcode scanning, quantities, case conversion, retail/wholesale pricing, discounts and saved invoices.
 - Cash, UPI, card and bank **payment recording**; customer credit and supplier dues with subsequent payments and party ledgers.
-- Separate warehouse/outlet stock, stock transfers, purchases, average recorded acquisition cost, low-stock alerts, SKU expiry dates and reasoned wastage/count adjustments.
+- Separate warehouse/outlet stock, stock transfers, purchases, average recorded acquisition cost, low-stock alerts, lots with their own expiry dates and reasoned wastage/count adjustments.
 - Café recipe definitions and automatic ingredient deduction per sale, with available-serving estimates.
 - Tax-inclusive prices, configurable GST and percentage cess, CGST/SGST or IGST based on place of supply, HSN/SAC, immutable invoice snapshots and financial-year invoice sequences of at most 16 characters.
 - 58 mm, 80 mm and A4 print layouts through the Windows/browser print dialog; save invoices as PDFs there.
@@ -126,7 +126,7 @@ Restore validates the backup and makes a local snapshot before replacement. When
 
 Node capabilities are equal. The online app still has owner/manager/cashier/viewer permissions for staff accounts, as requested; those apply to people rather than making a warehouse or café PC special. Windows has offline owner setup and individual local staff sign-in with the same roles. Accounts/passwords stay on their installation, while business records sync. Protect its files and do not expose its local HTTP listener publicly.
 
-- Expiry is per SKU, not batch/FEFO. Separate batch SKUs are needed.
+- Expiry is tracked per lot with earliest-expiry-first selling. MRP is still per product, not per lot.
 - Full internal reversals require refund reconciliation and do not generate statutory GST credit notes. Partial returns are not implemented.
 - Basic regular-registration GST and percentage cess are present; composition billing, specific cess, IRN/e-way bills, portal filing and accountant-certified books are not provided.
 - Contribution is a management estimate using recorded acquisition/recipe costs, not statutory profit/valuation.

@@ -41,7 +41,7 @@ def main():
   sale={'location':'Warehouse','items':[{'product_id':pid,'quantity':1}]};assert act('sale',sale,'a'*32)==act('sale',sale,'a'*32)
   installer();process.wait(timeout=30);process=start();token=sign_in('/login')
   with client.open(origin+'/api/state') as response:state=json.load(response)
-  assert len(state['documents'])==1 and state['products'][0]['stock']==6 and state['lots'][0]['quantity']==1
+  assert [d['kind'] for d in state['documents']].count('sale')==1 and len(state['documents'])==2 and state['products'][0]['stock']==6 and state['lots'][0]['quantity']==1
   subprocess.run([str(install/'app/AlHidayaTraders.exe'),'--maintenance'],env=env,check=True,timeout=60);process.wait(timeout=30)
   subprocess.run([str(install/'Uninstall.exe'),'/S'],env=env,check=True,timeout=120)
   assert (data/'shop.sqlite3').exists() and list((data/'backups').glob('*.sqlite3'))
