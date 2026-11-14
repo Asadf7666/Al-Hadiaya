@@ -77,6 +77,7 @@ class StaffAccess:
         if user['role'] in ('cashier','viewer'):
             result['trade_orders']=[];result['purchase_orders']=[];result['inventory_plans']=[];result['inventory_planning']=[];result['stock_alerts']=[]
             result['stocks']=[r for r in result['stocks'] if r['location']==user['location']]
+            result['lots']=[r for r in result['lots'] if r['location']==user['location']]
             for p in result['products']:
                 p['stock']=sum(r['quantity'] for r in result['stocks'] if r['product_id']==p['id'])
                 p['cost']=0

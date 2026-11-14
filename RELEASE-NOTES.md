@@ -1,4 +1,12 @@
-# Al Hadiya Traders 1.3.0
+# Al Hadiya Traders 1.4.0
+
+- Lots and expiry: one product can hold several lots, each with its own lot number and expiry. Purchases, opening stock and found stock record them; sales and café recipes use the earliest-expiring lot first and never an expired one.
+- Inventory shows each product's lots with days left, flags lots inside 30 days and expired lots, and lets transfers and wastage name a lot. Reversals return stock to the same lots, and lots sync between PCs.
+- A single product expiry from an earlier release becomes a lot over the stock on hand at the first start after updating.
+- Native Windows program: the app is compiled with Nuitka. No Python runtime, source or bytecode is installed, and updating removes those left by earlier releases. Data, accounts, pairing and licence are preserved.
+- Owner password recovery is now `app\AlHidayaTraders.exe --reset-owner USERNAME`.
+
+## 1.3.0
 
 - Offline licensing: a 60-day trial, then one signed licence file per PC. The Licence screen, under Settings, shows the Installation ID, status and days remaining, and installs a `.lic` file without internet.
 - Expiry gives a 14-day reminder and 7 days of grace before the app becomes read-only. Records stay viewable, printable, exportable and backed up in every state.

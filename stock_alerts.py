@@ -18,10 +18,12 @@ def alerts(db,settings):
     result.append({'key':f'{kind}:{p["id"]}:{location}','kind':kind,'product_id':p['id'],'location':location,'message':message})
    elif plan.get('urgent'):
     result.append({'key':f'reorder:{p["id"]}:{location}','kind':'reorder','product_id':p['id'],'location':location,'message':f"{p['name']} ({location})\nAvailable: {quantity:g} {p['unit']}\nSupply left: {plan['days_remaining']} days\nSupplier lead time: {plan['lead_days']} days\nSuggested: {plan['recommended']:g} | Incoming: {plan['incoming']:g}"})
-   if p['expiry'] and quantity>0:
-    days=(dt.date.fromisoformat(p['expiry'])-day).days
+   for lot in __import__('lots').breakdown(db,p,location,quantity) if quantity>0 else []:
+    if not lot['expiry']:continue
+    days=(dt.date.fromisoformat(lot['expiry'])-day).days
     if days<=7:
-     kind='expired' if days<0 else 'expiry';result.append({'key':f'{kind}:{p["id"]}:{location}:{p["expiry"]}','kind':kind,'product_id':p['id'],'location':location,'message':f"{p['name']} ({location})\nAvailable: {quantity:g} {p['unit']}\nRecorded expiry: {p['expiry']} ({days} days)\nReview affected stock. Expiry is recorded per SKU."})
+     kind='expired' if days<0 else 'expiry';label=f" lot {lot['lot']}" if lot['lot'] else ''
+     result.append({'key':f'{kind}:{p["id"]}:{location}:{lot["expiry"]}:{lot["lot"]}','kind':kind,'product_id':p['id'],'location':location,'message':f"{p['name']}{label} ({location})\nIn this lot: {lot['quantity']:g} {p['unit']}\nExpiry: {lot['expiry']} ({days} days)\nSell, return or write off this lot."})
  return result
 
 def queue(shop,db):

@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from notifications import protect
 
-TABLES=('products','parties','devices','stocks','allocations','recipes','documents','lines','movements','payments','expenses','commerce_products','trade_orders','inventory_plans','purchase_orders')
+TABLES=('products','parties','devices','stocks','allocations','lots','recipes','documents','lines','movements','payments','expenses','commerce_products','trade_orders','inventory_plans','purchase_orders')
 BUSINESS=('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id','node_mode')
 DDL='''CREATE TABLE IF NOT EXISTS cloud_codes(digest TEXT PRIMARY KEY,expires REAL,location TEXT,percentage INTEGER,used_device TEXT);
 CREATE TABLE IF NOT EXISTS cloud_peers(device_id TEXT PRIMARY KEY,token_hash TEXT,name TEXT,location TEXT,active INTEGER DEFAULT 1,last_contact TEXT);
@@ -104,7 +104,7 @@ class Hub:
         if event.get('version')!=1 or event.get('device')!=ident or not re.fullmatch(r'[0-9]{20}-'+ident+r'-[0-9a-f]{8}',event.get('id','')):raise ValueError('Invalid event identity.')
         p=event['payload']
         if set(p)-{'masters','append','deltas','settings','recipes'}:raise ValueError('Unknown event content.')
-        if set(p['masters'])-{'products','parties','devices','documents','commerce_products','trade_orders','inventory_plans','purchase_orders'} or set(p['append'])-{'lines','movements','payments','expenses'} or set(p['deltas'])-{'stocks','parties','allocations'}:raise ValueError('Unknown synced table.')
+        if set(p['masters'])-{'products','parties','devices','documents','commerce_products','trade_orders','inventory_plans','purchase_orders'} or set(p['append'])-{'lines','movements','payments','expenses'} or set(p['deltas'])-{'stocks','parties','allocations','lots'}:raise ValueError('Unknown synced table.')
         for row in p['masters'].get('devices',[]):
             if row['id']!=ident or row['location'] not in ('Warehouse','Outlet'):raise ValueError('Only this node’s identity may be updated.')
         for row in p['settings']:
@@ -159,6 +159,7 @@ class Hub:
             if type(row['delta']) is not int:raise ValueError('Invalid ledger delta.')
             deltas[row['id']]=deltas.get(row['id'],0)+row['delta']
         if {k:v for k,v in ledger.items() if v}!={k:v for k,v in deltas.items() if v}:raise ValueError('Ledger changes must agree with invoices and payments.')
+        for row in p['deltas'].get('lots',[]):__import__('lots').check(row)
         stocks={};movements={};transfers={};reversals={}
         for row in p['deltas']['stocks']:
             if row['location'] not in ('Warehouse','Outlet') or not math.isfinite(row['delta']):raise ValueError('Invalid stock delta.')

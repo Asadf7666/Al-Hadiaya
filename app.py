@@ -131,6 +131,7 @@ class Shop:
             for p in db.execute('SELECT id,stock FROM products'):
                 if not db.execute('SELECT 1 FROM stocks WHERE product_id=?',(p['id'],)).fetchone():
                     db.execute('INSERT INTO stocks VALUES(?,?,?)',(p['id'],'Outlet',p['stock']))
+            __import__('lots').ensure(db)
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=15, factory=ClosingConnection)
@@ -164,6 +165,7 @@ class Shop:
             from whatsapp_orders import state as order_state
             result.update(order_state(db))
             result.update(__import__('procurement').state(db))
+            result['lots']=__import__('lots').state(db)
             result['stock_alerts']=__import__('stock_alerts').alerts(db,self.settings(db))
             result['campaigns'] = [dict(r) for r in db.execute('SELECT * FROM whatsapp_campaigns ORDER BY created DESC LIMIT 100')]
             result['whatsapp_templates'] = [dict(r) for r in db.execute('SELECT * FROM whatsapp_templates ORDER BY name,language')]
@@ -179,7 +181,8 @@ class Shop:
             raise ValueError('Choose Warehouse or Outlet.')
         return value
 
-    def movement(self, db, pid, qty, ref, note, location='Outlet'):
+    def movement(self, db, pid, qty, ref, note, location='Outlet', lot=None, take='any', strict=False):
+        """Move stock and keep its lots in step. Returns the lot portions received or used."""
         self.location(location)
         p = db.execute('SELECT * FROM products WHERE id=?',(pid,)).fetchone()
         if not p or p['kind'] == 'recipe':
@@ -201,9 +204,12 @@ class Shop:
                 db.execute('UPDATE allocations SET quantity=ROUND(quantity+?,6) WHERE device_id=? AND product_id=? AND location=?',(qty,actor,pid,location))
         if stock + qty < -0.000001:
             raise ValueError('Insufficient stock in '+location+': '+p['name'])
+        import lots
+        portions = lots.receive(db,pid,location,qty,lot) if qty > 0 else lots.take(db,p,location,-qty,stock,take,lot,strict)
         db.execute('UPDATE stocks SET quantity=ROUND(quantity+?,6) WHERE product_id=? AND location=?',(qty,pid,location))
         db.execute('UPDATE products SET stock=ROUND(stock+?,6) WHERE id=?',(qty,pid))
         db.execute('INSERT INTO movements(date,product_id,quantity,reference,note,location) VALUES(?,?,?,?,?,?)',(now(),pid,qty,ref,note,location))
+        return portions
 
     def act(self, action, data):
         if action=='cloud_retire':return __import__('cloud_sync').retire(self,data)
@@ -330,7 +336,14 @@ class Shop:
                 qty = float(data['quantity'])
                 if not __import__('math').isfinite(qty) or qty == 0:
                     raise ValueError('Adjustment quantity must be non-zero.')
-                self.movement(db,int(data['product_id']),qty,'ADJUST',required(data.get('note'),'Reason'),data.get('location','Outlet'))
+                import lots
+                pid = int(data['product_id']); place = self.location(data.get('location','Outlet'))
+                if qty > 0:
+                    chosen = dict(zip(('lot','expiry'),lots.clean(data)))
+                else:
+                    chosen = lots.resolve(db,data['lot_id'],pid,place) if data.get('lot_id') else None
+                # A write-off clears the oldest dates first unless one lot was picked.
+                self.movement(db,pid,qty,'ADJUST',required(data.get('note'),'Reason'),place,lot=chosen,take='writeoff',strict=bool(chosen))
             elif action == 'transfer':
                 source = self.location(data['source'])
                 target = self.location(data['target'])
@@ -340,8 +353,9 @@ class Shop:
                 qty = number(data['quantity'],True)
                 ref = 'TR-'+secrets.token_hex(5).upper()
                 note = str(data.get('note','Stock transfer'))
-                self.movement(db,pid,-qty,ref,note,source)
-                self.movement(db,pid,qty,ref,note,target)
+                chosen = __import__('lots').resolve(db,data['lot_id'],pid,source) if data.get('lot_id') else None
+                moved = self.movement(db,pid,-qty,ref,note,source,lot=chosen,strict=bool(chosen))
+                self.movement(db,pid,qty,ref,note,target,lot=moved)
                 result = {'id':ref}
             elif action == 'allocate':
                 if configuration.get('node_mode')=='unified':
@@ -576,9 +590,9 @@ class Shop:
         gst, cess = number(data.get('gst',0)), number(data.get('cess',0))
         if gst > 100 or cess > 100:
             raise ValueError('Tax rates must be between 0 and 100.')
-        expiry = data.get('expiry','')
-        if expiry:
-            dt.date.fromisoformat(expiry)
+        # Expiry belongs to a lot of stock, not to the product: it is recorded with the opening stock below.
+        opening_lot = dict(zip(('lot','expiry'),__import__('lots').clean(data)))
+        expiry = ''
         values = (required(data.get('name')),required(data.get('sku'),'SKU'),required(data.get('category'),'Category'),
                   required(data.get('unit'),'Unit'),money(data.get('price',0)),money(data.get('cost',0)),gst,cess,
                   str(data.get('hsn','')),number(data.get('minimum',5)),number(data.get('pack',1),True),expiry,kind)
@@ -595,7 +609,7 @@ class Shop:
             db.execute('INSERT INTO products(id,name,sku,category,unit,price,cost,gst,cess,hsn,minimum,pack,expiry,kind) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(pid,)+values)
             opening = number(data.get('stock',0))
             if opening and kind != 'recipe':
-                self.movement(db,pid,opening,'OPENING','Opening stock',data.get('location','Warehouse'))
+                self.movement(db,pid,opening,'OPENING','Opening stock',data.get('location','Warehouse'),lot=opening_lot)
         barcode = str(data.get('barcode','')).strip()
         if len(barcode) > 64:
             raise ValueError('Barcode is too long.')
@@ -607,11 +621,11 @@ class Shop:
 
     def capture(self, db):
         return {t:[dict(r) for r in db.execute('SELECT * FROM '+t)] for t in
-                ('products','parties','recipes','stocks','documents','lines','movements','payments','expenses','settings','devices','allocations','commerce_products','trade_orders','inventory_plans','purchase_orders')}
+                ('products','parties','recipes','stocks','documents','lines','movements','payments','expenses','settings','devices','allocations','commerce_products','trade_orders','inventory_plans','purchase_orders','lots')}
 
     def record_event(self, db, before):
         after = self.capture(db)
-        payload = {'masters':{},'append':{},'deltas':{'stocks':[],'parties':[],'allocations':[]},'settings':[],'recipes':[]}
+        payload = {'masters':{},'append':{},'deltas':{'stocks':[],'parties':[],'allocations':[],'lots':__import__('lots').deltas(before['lots'],after['lots'])},'settings':[],'recipes':[]}
         for table in ('products','parties','documents','devices','commerce_products','trade_orders','inventory_plans','purchase_orders'):
             old = {r['id']:r for r in before[table]}
             changed = []
@@ -723,6 +737,7 @@ class Shop:
                 raise ValueError('Stock conflict or missing earlier transaction. Keep both PCs synced; do not edit sync files.')
             db.execute('UPDATE stocks SET quantity=ROUND(quantity+?,6) WHERE product_id=? AND location=?',(delta,pid,loc))
             db.execute('UPDATE products SET stock=ROUND(stock+?,6) WHERE id=?',(delta,pid))
+        __import__('lots').apply(db,payload['deltas'].get('lots',[]))
         for row in payload['deltas']['parties']:
             p = db.execute('SELECT balance,kind,credit_limit FROM parties WHERE id=?',(row['id'],)).fetchone()
             if not p or p[0]+row['delta'] < 0:
@@ -865,8 +880,6 @@ class Shop:
                 raise ValueError('Confirm HSN/SAC and tax rate before GST billing: '+p['name'])
             if settings['gst_enabled'] and not p['hsn'].isdigit():
                 raise ValueError('Enter HSN/SAC before GST billing: '+p['name'])
-            if kind == 'sale' and p['expiry'] and p['expiry'] < __import__('outreach').business_now({'whatsapp_timezone':'Asia/Kolkata'}).date().isoformat():
-                raise ValueError('Expired stock cannot be sold: '+p['name'])
             if kind == 'purchase' and p['kind'] == 'recipe':
                 raise ValueError('Receive ingredients, not prepared café products.')
             qty = number(item['quantity'],True)
@@ -875,7 +888,7 @@ class Shop:
                 raise ValueError('Selling price exceeds MRP: '+p['name'])
             linegross = int((Decimal(price)*Decimal(str(qty))).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
             gross += linegross
-            prepared.append({'p':dict(p),'quantity':qty,'price':price,'gross':linegross})
+            prepared.append({'p':dict(p),'quantity':qty,'price':price,'gross':linegross,'lot':dict(zip(('lot','expiry'),__import__('lots').clean(item))) if kind == 'purchase' else None})
         discount = money(data.get('discount',0)) if kind == 'sale' else 0
         if discount > gross:
             raise ValueError('Discount cannot exceed the bill total.')
@@ -908,14 +921,13 @@ class Shop:
                 recipe = list(db.execute('SELECT r.*,p.cost,p.expiry FROM recipes r JOIN products p ON p.id=r.ingredient_id WHERE product_id=?',(p['id'],)))
                 if not recipe:
                     raise ValueError('Set up the recipe for '+p['name']+' before billing.')
-                cost = 0
+                cost = 0;portions = []
                 for r in recipe:
-                    if r['expiry'] and r['expiry']<business_day.isoformat():raise ValueError('A recipe ingredient has expired. Review its stock before billing.')
                     used = qty*r['quantity']
-                    self.movement(db,r['ingredient_id'],-used,docid,'Café recipe: '+p['name'],location)
+                    portions += self.movement(db,r['ingredient_id'],-used,docid,'Café recipe: '+p['name'],location,take='sale')
                     cost += int(Decimal(r['cost'])*Decimal(str(used)))
             else:
-                self.movement(db,p['id'],qty if kind == 'purchase' else -qty,docid,kind.title(),location)
+                portions = self.movement(db,p['id'],qty if kind == 'purchase' else -qty,docid,kind.title(),location,lot=line['lot'],take='sale')
                 if kind == 'purchase':
                     oldvalue = Decimal(str(p['stock']))*p['cost']
                     newcost = int(((oldvalue+Decimal(str(qty))*line['price'])/Decimal(str(p['stock']+qty))).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
@@ -925,6 +937,8 @@ class Shop:
                 'cess':p['cess'] if settings['gst_enabled'] else 0,'taxable':taxable,'gst_amount':gstamount,'cess_amount':cessamount,
                 'cgst_amount':0 if interstate else gstamount//2,'sgst_amount':0 if interstate else gstamount-gstamount//2,
                 'igst_amount':gstamount if interstate else 0})
+            # Which lots this line drew from or created, so a reversal returns stock to the same lots.
+            if portions:snapshot['items'][-1]['lots']=portions
         if purchase_order:snapshot['purchase_order_id']=purchase_order['id']
         paid = money(data.get('paid',total/100))
         if paid > total:
@@ -968,8 +982,17 @@ class Shop:
             if party['balance'] < outstanding or db.execute('SELECT 1 FROM payments WHERE party_id=? AND date>=?',(doc['party_id'],doc['date'])).fetchone():
                 raise ValueError('Payments have been recorded after this bill. An accountant must reconcile them before reversal.')
             db.execute('UPDATE parties SET balance=balance-? WHERE id=?',(outstanding,doc['party_id']))
+        pool = {}
+        for item in snapshot.get('items',[]):
+            for part in item.get('lots',[]):pool.setdefault(part['product_id'],[]).append(dict(part))
         for m in list(db.execute('SELECT * FROM movements WHERE reference=?',(doc['id'],))):
-            self.movement(db,m['product_id'],-m['quantity'],'REV-'+doc['id'],reason,m['location'])
+            # Hand each movement its share of the recorded lots, in the order they were used.
+            share,left = [],abs(m['quantity'])
+            for part in pool.get(m['product_id'],[]):
+                amount = min(part['quantity'],left)
+                if amount > 0.000001:
+                    share.append({**part,'quantity':amount});part['quantity'] -= amount;left -= amount
+            self.movement(db,m['product_id'],-m['quantity'],'REV-'+doc['id'],reason,m['location'],lot=share or None,take='writeoff')
         if doc['kind']=='purchase':__import__('procurement').reverse(db,doc)
         db.execute('UPDATE documents SET reversed=1 WHERE id=?',(doc['id'],))
         return {'refund':doc['paid'],'method':doc['payment']}
@@ -1116,7 +1139,13 @@ def main():
     parser.add_argument('--data-dir',type=Path,default=DATA)
     parser.add_argument('--restore',type=Path)
     parser.add_argument('--backup-only',action='store_true')
+    parser.add_argument('--maintenance',action='store_true',help='Close the running app and back up before an update')
+    parser.add_argument('--reset-owner',metavar='USERNAME',help='Set a new password for a local owner account')
     args = parser.parse_args()
+    if args.maintenance:
+        sys.exit(__import__('maintenance').prepare_update())
+    if args.reset_owner:
+        sys.exit(__import__('maintenance').reset_owner(args.data_dir,args.reset_owner))
     shop = Shop(args.data_dir)
     if args.backup_only:
         shop.backup(local_only=True)

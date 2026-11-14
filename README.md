@@ -1,11 +1,11 @@
-# Al Hadiya Traders — Business Manager 1.3.0
+# Al Hadiya Traders — Business Manager 1.4.0
 
 An owned Windows and web shop manager for an Indian trading warehouse/retail counter and a takeaway café. Every paired PC has all business functions. Warehouse and Outlet identify transaction locations, not device permissions or separate applications. Internet is not needed for local Windows operations. The browser website requires a connection to its server.
 
 ## Install or update Windows
 
-1. Run `AlHidayaTraders-Setup-1.3.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
-2. Open the app from its desktop or Start Menu shortcut. The launcher serves the interface at `127.0.0.1:8765` and must remain open.
+1. Run `AlHidayaTraders-Setup-1.4.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
+2. Open the app from its desktop or Start Menu shortcut. The program serves the interface at `127.0.0.1:8765` and must remain open.
 3. Choose the default transaction location in the header or Settings. Every node can work with both locations, receive purchases, record payments, manage stock and products, define recipes, issue credit bills and change business/GST details.
 4. Confirm real prices, stock, pack quantities, barcodes and tax classifications before live trading. Karnataka defaults to state code 29. The installer is unsigned. Physical printer/scanner acceptance is required; the Windows release workflow executes installation/update checks before publishing a download.
 
@@ -19,7 +19,18 @@ Each PC runs on one licence file, checked on the PC itself with no internet.
 - A reminder appears 14 days before expiry. After expiry there are 7 days of grace, then the app becomes read-only.
 - Read-only never locks records away: viewing, printing, exporting and backups keep working. New bills, purchases, stock changes and settings wait for a licence.
 
-Supplier side: `tools/license_admin.py` issues licences with a private signing key that is kept off every shop PC and out of this repository. The installer does not include that tool. From 1.3.0 the installer ships compiled bytecode rather than Python source.
+Supplier side: `tools/license_admin.py` issues licences with a private signing key that is kept off every shop PC and out of this repository. The installer does not include that tool. From 1.4.0 the app is compiled to a native Windows program with Nuitka: no Python runtime, source or bytecode is installed.
+
+## Lots and expiry
+
+One product can hold several lots, each with its own lot number and expiry date.
+
+- Enter the lot number and expiry on each purchase line; use one line per lot when a delivery has mixed dates. Opening stock and found stock accept them too.
+- Sales and café recipes take the earliest-expiring lot first and never an expired one. A bill is refused only for the quantity that is out of date.
+- **Inventory → Lots** lists every lot with its location, quantity and days left. Lots within 30 days of expiry are flagged; alerts start 7 days before.
+- Transfers and wastage can name a lot; otherwise transfers send in-date stock first and wastage clears the oldest dates first.
+- Reversing a bill or purchase returns stock to the same lots. Lots sync between PCs with the transactions that changed them.
+- A single product expiry recorded in an earlier release becomes a lot over the stock on hand at the first start after updating.
 
 ## Keyboard access
 
@@ -131,7 +142,7 @@ python app.py
 python -m unittest discover -s tests -v
 ```
 
-For disposable exploration use `python app.py --data-dir ./sample-data --port 8766` and Explore sample shop. Packaging uses NSIS and the pinned official Python 3.14.8 embedded runtime with SHA-256 verification. Build tooling is not needed on shop PCs. See `packaging/build.py`, `TESTING.md` and `RESEARCH.md`.
+For disposable exploration use `python app.py --data-dir ./sample-data --port 8766` and Explore sample shop. Packaging compiles the app to a native Windows program with Nuitka and wraps it in an NSIS installer; see `packaging/build.py`. Build tooling is not needed on shop PCs. See `packaging/build.py`, `TESTING.md` and `RESEARCH.md`.
 
 
 ## Photo campaigns and customer catalogue (0.6)

@@ -8,7 +8,7 @@ def main():
  version=(ROOT/'VERSION').read_text().strip();setup=ROOT/'dist'/('AlHidayaTraders-Setup-'+version+'.exe')
  def installer():subprocess.run([str(setup),'/S','/D='+str(install)],env=env,check=True,timeout=240)
  def start():
-  process=subprocess.Popen([str(install/'runtime/python.exe'),str(install/'app.pyc'),'--no-browser'],env=env,stdout=subprocess.DEVNULL,stderr=None)
+  process=subprocess.Popen([str(install/'app/AlHidayaTraders.exe'),'--no-browser'],env=env,stdout=subprocess.DEVNULL,stderr=None)
   for _ in range(100):
    if process.poll() is not None:raise RuntimeError('Installed app exited before serving.')
    try:
@@ -26,7 +26,7 @@ def main():
   with client.open(req,timeout=20) as response:return json.load(response)
  try:
   token=sign_in('/setup')
-  assert (install/'licensing.pyc').exists() and not list(install.glob('*.py')), 'Installed app must be bytecode only.'
+  assert not [p for p in install.rglob('*') if p.suffix in ('.py','.pyc')] and not (install/'runtime').exists(), 'Installed app must be the native program only.'
   with client.open(origin+'/license.js',timeout=10) as response:assert b'licencePage' in response.read(), 'Installed licence module missing.'
   with client.open(origin+'/api/state',timeout=10) as response:licence=json.load(response)['licence']
   assert licence['status']=='trial' and licence['writable'] and len(licence['installation_id'])==19, 'A fresh installation must start its trial.'
@@ -36,15 +36,17 @@ def main():
    assert b'Find a page or action' in response.read(), 'Installed keyboard module missing.'
   with client.open(origin+'/',timeout=10) as response:assert b'/keyboard.js' in response.read()
   pid=act('product',{'name':'CI Drink','sku':'CI-DRINK','category':'Cold drinks','kind':'stock','unit':'bottle','price':50,'cost':20,'stock':5,'location':'Warehouse'})['id']
+  supplier=act('party',{'name':'CI Supplier','kind':'supplier'})['id'];act('purchase',{'party_id':supplier,'location':'Warehouse','reference':'CI-1','paid':0,'items':[{'product_id':pid,'quantity':2,'price':20,'lot':'CI-LOT','expiry':'2099-12-31'}]},'b'*32)
+  with client.open(origin+'/api/state',timeout=10) as response:assert [(l['lot'],l['quantity']) for l in json.load(response)['lots']]==[('CI-LOT',2)], 'Purchase lot was not recorded.'
   sale={'location':'Warehouse','items':[{'product_id':pid,'quantity':1}]};assert act('sale',sale,'a'*32)==act('sale',sale,'a'*32)
   installer();process.wait(timeout=30);process=start();token=sign_in('/login')
   with client.open(origin+'/api/state') as response:state=json.load(response)
-  assert len(state['documents'])==1 and state['products'][0]['stock']==4
-  subprocess.run([str(install/'runtime/python.exe'),str(install/'packaging/maintenance.py')],env=env,check=True,timeout=60);process.wait(timeout=30)
+  assert len(state['documents'])==1 and state['products'][0]['stock']==6 and state['lots'][0]['quantity']==1
+  subprocess.run([str(install/'app/AlHidayaTraders.exe'),'--maintenance'],env=env,check=True,timeout=60);process.wait(timeout=30)
   subprocess.run([str(install/'Uninstall.exe'),'/S'],env=env,check=True,timeout=120)
   assert (data/'shop.sqlite3').exists() and list((data/'backups').glob('*.sqlite3'))
-  with sqlite3.connect(data/'shop.sqlite3') as db:assert db.execute('SELECT stock FROM products WHERE id=?',(pid,)).fetchone()[0]==4
-  print('Windows installer execution, bytecode-only install, trial licence, offline owner setup, retry-safe billing, in-place update, account/data retention and uninstall preservation passed.')
+  with sqlite3.connect(data/'shop.sqlite3') as db:assert db.execute('SELECT stock FROM products WHERE id=?',(pid,)).fetchone()[0]==6
+  print('Windows installer execution, native compiled install, trial licence, offline owner setup, retry-safe billing, in-place update, account/data retention and uninstall preservation passed.')
  finally:
   if process.poll() is None:process.kill();process.wait(timeout=20)
 if __name__=='__main__':main()

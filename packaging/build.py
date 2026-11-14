@@ -1,26 +1,35 @@
-"""Build a Windows NSIS installer on Linux or Windows; no shop-side Python needed."""
+"""Compile the app to a native Windows program with Nuitka and wrap it in an NSIS installer.
+
+The shop PC needs nothing else: no Python and no source files are installed.
+Build machine: Python with `pip install nuitka`, a C compiler Nuitka can use, and NSIS 3.
+"""
 import hashlib
 import os
-import py_compile
-import sys
 from pathlib import Path
 import shutil
 import subprocess
-import urllib.request
-import zipfile
+import sys
 
 ROOT=Path(__file__).resolve().parents[1]
-VERSION='3.14.8'
-SHA256='a93abe456ab01bd96d7a085b3cdb6566b3063f4241360d114142fbdb07f0a310'
-def compile_modules(target):
-    """Ship bytecode only: the installed app carries no readable Python source."""
-    if sys.version_info[:2]!=tuple(int(n) for n in VERSION.split('.')[:2]):
-        raise SystemExit('Build with Python '+'.'.join(VERSION.split('.')[:2])+' so the bytecode matches the embedded runtime.')
-    shutil.rmtree(target,ignore_errors=True);target.mkdir(parents=True)
-    for source in sorted(ROOT.glob('*.py')):
-        py_compile.compile(str(source),cfile=str(target/(source.stem+'.pyc')),dfile=source.name,doraise=True,
-                           invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
-    return target
+
+def compile_native(target):
+    """Translate every module to C and build one program folder with its data files."""
+    version=(ROOT/'VERSION').read_text().strip()
+    shutil.rmtree(target,ignore_errors=True)
+    modules=sorted(p.stem for p in ROOT.glob('*.py') if p.stem!='app')
+    command=[sys.executable,'-m','nuitka','--standalone','--assume-yes-for-downloads','--lto=no',
+             '--output-dir='+str(target),'--output-filename=AlHidayaTraders',
+             *('--include-module='+name for name in modules),
+             '--include-data-dir=static=static','--include-data-files=VERSION=VERSION','--include-data-files=catalog.json=catalog.json',
+             '--nofollow-import-to=tkinter,unittest,test,pydoc,doctest']
+    if os.name=='nt':
+        command+=['--windows-console-mode=disable','--company-name=Al Hadiya Traders','--product-name=Al Hadiya Traders',
+                  '--file-description=Al Hadiya Traders business manager','--file-version='+version,'--product-version='+version]
+    subprocess.run(command+['app.py'],cwd=ROOT,check=True)
+    dist=target/'app.dist'
+    leftovers=[p.name for p in dist.rglob('*') if p.suffix in ('.py','.pyc')]
+    if leftovers:raise SystemExit('Python source or bytecode reached the program folder: '+', '.join(leftovers))
+    return dist
 
 def main():
     compiler=os.environ.get('MAKENSIS') or shutil.which('makensis')
@@ -28,23 +37,13 @@ def main():
         compiler=str(Path(os.environ.get('ProgramFiles(x86)',r'C:\Program Files (x86)'))/'NSIS'/'makensis.exe')
     if not compiler or not Path(compiler).is_file():
         raise SystemExit('Install NSIS 3 and set MAKENSIS to its compiler executable if it is not on PATH.')
-    build=ROOT/'build';build.mkdir(exist_ok=True)
-    archive=build/'python-embed.zip'
-    if not archive.exists():
-        with urllib.request.urlopen(f'https://www.python.org/ftp/python/{VERSION}/python-{VERSION}-embed-amd64.zip',timeout=60) as response:
-            archive.write_bytes(response.read())
-    if hashlib.sha256(archive.read_bytes()).hexdigest()!=SHA256:
-        raise SystemExit('Embedded runtime SHA-256 mismatch. Packaging aborted.')
-    runtime=build/'runtime'
-    runtime.mkdir(exist_ok=True)
-    with zipfile.ZipFile(archive) as z:z.extractall(runtime)
-    compile_modules(build/'compiled')
+    if os.name!='nt':
+        raise SystemExit('Build the installer on Windows: Nuitka compiles for the system it runs on.')
+    compile_native(ROOT/'build'/'native')
     (ROOT/'dist').mkdir(exist_ok=True)
-    subprocess.run([compiler,'launcher.nsi'],cwd=ROOT/'packaging',check=True)
     product_version=(ROOT/'VERSION').read_text().strip()
-    version_define=('/D' if os.name=='nt' else '-D')+'PRODUCT_VERSION='+product_version
-    subprocess.run([compiler,version_define,'installer.nsi'],cwd=ROOT/'packaging',check=True)
-    setup=ROOT/'dist'/('AlHidayaTraders-Setup-'+(ROOT/'VERSION').read_text().strip()+'.exe')
+    subprocess.run([compiler,'/DPRODUCT_VERSION='+product_version,'installer.nsi'],cwd=ROOT/'packaging',check=True)
+    setup=ROOT/'dist'/('AlHidayaTraders-Setup-'+product_version+'.exe')
     digest=hashlib.sha256(setup.read_bytes()).hexdigest()
     (setup.parent/'SHA256SUMS.txt').write_text(digest+'  '+setup.name+'\n')
     print('Built:',setup,'\nSHA-256:',digest)

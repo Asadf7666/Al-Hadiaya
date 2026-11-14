@@ -40,6 +40,6 @@ Download backup with photos produces a portable archive with staff/session/pairi
 
 Restore backup validates the archive/database, preserves current local accounts/device identity, clears sessions and leaves sync/WhatsApp off. Recovery failure restores previous records/photos. Paired-node recovery needs reconciliation. Keep an external backup; local snapshots alone do not protect against loss of the PC.
 
-Lost owner passwords can be reset from the Windows account owning the data using `tools/reset_owner.py`; it prompts privately. Apply off-WhatsApp opt-outs through profile/contact consent controls. For data requests, verify identity and reconcile required financial retention before removal. Keep public privacy/deletion support routes accurate and do not store/send sensitive identifiers in message notes.
+Lost owner passwords can be reset from the Windows account owning the data by running `app\AlHidayaTraders.exe --reset-owner USERNAME` from the installation folder; it prompts privately. Apply off-WhatsApp opt-outs through profile/contact consent controls. For data requests, verify identity and reconcile required financial retention before removal. Keep public privacy/deletion support routes accurate and do not store/send sensitive identifiers in message notes.
 
 Periodic snapshot retention keeps the latest eight plus one per latest seven recorded days. Manual/update/recovery snapshots remain until the owner archives them. Photos are included; keep an external copy and monitor storage.
