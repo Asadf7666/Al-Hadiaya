@@ -25,3 +25,17 @@ body.licence-open nav button[onclick*="'settings'"]{background:#343a2c;color:#e7
 .licence-summary{display:flex;justify-content:space-between;align-items:center;gap:14px;font-size:12px;line-height:1.6;color:var(--muted)}
 .licence-summary .btn{width:auto;flex:none}
 @media(max-width:700px){.licence-bar,.licence-summary{flex-direction:column;align-items:flex-start}.licence-id{font-size:19px;letter-spacing:1px}}
+/* Counter: UPI QR, shifts, returns */
+.upi-block{display:flex;gap:14px;align-items:center;border:1px dashed var(--line);border-radius:6px;padding:10px 12px;margin:14px 0;font-size:11px;line-height:1.5}
+.upi-block p{margin:0}
+.upi-qr{width:112px;height:112px;flex:none;background:#fff}
+.upi-qr svg{width:100%;height:100%;display:block}
+.linked-notes{padding:0 22px 16px}
+.linked-notes h3{font-size:12px;margin-bottom:4px}
+.shift-card{margin-bottom:24px}
+.shift-figures{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px}
+.shift-figures small{display:block;color:var(--muted);font-size:11px;margin-bottom:4px}
+.shift-figures b{font-size:19px;font-weight:600}
+.return-qty,.count-input{width:110px}
+@media(max-width:700px){.shift-figures{grid-template-columns:1fr 1fr}.upi-block{flex-direction:column;align-items:flex-start}}
+@media print{.upi-qr{width:30mm;height:30mm}}

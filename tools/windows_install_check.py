@@ -39,13 +39,15 @@ def main():
   supplier=act('party',{'name':'CI Supplier','kind':'supplier'})['id'];act('purchase',{'party_id':supplier,'location':'Warehouse','reference':'CI-1','paid':0,'items':[{'product_id':pid,'quantity':2,'price':20,'lot':'CI-LOT','expiry':'2099-12-31'}]},'b'*32)
   with client.open(origin+'/api/state',timeout=10) as response:assert [(l['lot'],l['quantity']) for l in json.load(response)['lots']]==[('CI-LOT',2)], 'Purchase lot was not recorded.'
   sale={'location':'Warehouse','items':[{'product_id':pid,'quantity':1}]};assert act('sale',sale,'a'*32)==act('sale',sale,'a'*32)
+  sold=act('sale',sale,'a'*32)['id'];note=act('return',{'id':sold,'reason':'CI return','items':[{'line':0,'quantity':1}]},'c'*32);assert note['refund']==5000
+  act('shift_open',{'opening_float':100});assert act('shift_close',{'counted':100})['difference']==0
   installer();process.wait(timeout=30);process=start();token=sign_in('/login')
   with client.open(origin+'/api/state') as response:state=json.load(response)
-  assert [d['kind'] for d in state['documents']].count('sale')==1 and len(state['documents'])==2 and state['products'][0]['stock']==6 and state['lots'][0]['quantity']==1
+  assert sorted(d['kind'] for d in state['documents'])==['purchase','sale','sale_return'] and state['products'][0]['stock']==7 and state['lots'][0]['quantity']==2 and len(state['shifts'])==1
   subprocess.run([str(install/'app/AlHidayaTraders.exe'),'--maintenance'],env=env,check=True,timeout=60);process.wait(timeout=30)
   subprocess.run([str(install/'Uninstall.exe'),'/S'],env=env,check=True,timeout=120)
   assert (data/'shop.sqlite3').exists() and list((data/'backups').glob('*.sqlite3'))
-  with sqlite3.connect(data/'shop.sqlite3') as db:assert db.execute('SELECT stock FROM products WHERE id=?',(pid,)).fetchone()[0]==6
+  with sqlite3.connect(data/'shop.sqlite3') as db:assert db.execute('SELECT stock FROM products WHERE id=?',(pid,)).fetchone()[0]==7
   print('Windows installer execution, native compiled install, trial licence, offline owner setup, retry-safe billing, in-place update, account/data retention and uninstall preservation passed.')
  finally:
   if process.poll() is None:process.kill();process.wait(timeout=20)

@@ -1,4 +1,17 @@
-# Al Hadiya Traders 1.4.0
+# Al Hadiya Traders 2.0.0
+
+- Returns with numbered credit notes (sales) and debit notes (purchases), partial by item, restocking the original lots.
+- Split payment on one bill, optional round-off to the rupee, and a UPI QR for the exact amount on the checkout screen and printed bill.
+- Cash drawer shifts with opening float, counted close and a printable day-end report.
+- Stock count that posts only the differences.
+- Reports net of returns, credit ageing by 30/60/90 days, credit and debit note list, and an HSN summary export.
+- Bill of supply heading for composition dealers and FSSAI licence number on bills.
+- The app opens in its own window when Edge or Chrome is installed.
+- Includes everything in 1.3.0 and 1.4.0: offline licensing, lots with expiry, and the native compiled Windows program.
+
+Updating keeps all data, accounts, pairing and the licence. Have your accountant confirm tax settings and document layouts before live GST use.
+
+## 1.4.0
 
 - Lots and expiry: one product can hold several lots, each with its own lot number and expiry. Purchases, opening stock and found stock record them; sales and café recipes use the earliest-expiring lot first and never an expired one.
 - Inventory shows each product's lots with days left, flags lots inside 30 days and expired lots, and lets transfers and wastage name a lot. Reversals return stock to the same lots, and lots sync between PCs.

@@ -145,3 +145,22 @@ class DesktopLicenceTest(unittest.TestCase):
         self.assertIn('/login',opener.open(self.origin+'/license.js').geturl())
 
 if __name__=='__main__':unittest.main()
+
+class CounterAccessTest(DesktopLicenceTest):
+    def test_returns_need_a_manager_and_a_valid_licence(self):
+        self.server.access.user({'username':'till','password':'cashier-password-123','role':'cashier','location':'Warehouse'})
+        self.server.access.user({'username':'look','password':'viewer-password-1234','role':'viewer','location':'Warehouse'})
+        _,owner=self.client('owner','owner-password-123')
+        pid=owner('product',{'name':'<img src=x onerror=alert(1)>','sku':'X1','category':'Drinks','kind':'stock','unit':'pc','price':10,'cost':5,'stock':5,'location':'Warehouse'})[1]['id']
+        sale=owner('sale',{'location':'Warehouse','items':[{'product_id':pid,'quantity':2}]})[1]['id']
+        body={'id':sale,'reason':'x','items':[{'line':0,'quantity':1}]}
+        _,cashier=self.client('till','cashier-password-123');_,viewer=self.client('look','viewer-password-1234')
+        self.assertEqual(cashier('return',body)[0],403);self.assertEqual(viewer('return',body)[0],403)
+        self.assertEqual(cashier('stock_count',{'location':'Warehouse','counts':[{'product_id':pid,'counted':0}]})[0],403)
+        self.assertEqual(viewer('shift_open',{'opening_float':1})[0],403)
+        self.assertEqual(cashier('shift_open',{'opening_float':100})[0],200)
+        for bad in ({'id':"x' OR '1'='1",'reason':'x','items':[{'line':0,'quantity':1}]},{'id':sale,'reason':'x','items':[{'line':-1,'quantity':1}]},{'id':sale,'reason':'x','items':[{'line':0,'quantity':-5}]},{'id':sale,'reason':'x','refund':-1,'items':[{'line':0,'quantity':1}]},{'id':sale,'reason':'x','items':'nope'}):
+            self.assertEqual(owner('return',bad)[0],400,bad)
+        self.clock.days(TRIAL_DAYS+1)
+        for action,payload in (('return',body),('stock_count',{'location':'Warehouse','counts':[]}),('shift_close',{'counted':1})):
+            self.assertEqual(owner(action,payload)[0],402,action)

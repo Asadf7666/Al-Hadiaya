@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from notifications import protect
 
 TABLES=('products','parties','devices','stocks','allocations','lots','recipes','documents','lines','movements','payments','expenses','commerce_products','trade_orders','inventory_plans','purchase_orders')
-BUSINESS=('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id','node_mode')
+BUSINESS=('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id','node_mode','fssai','composition','upi_id','round_off')
 DDL='''CREATE TABLE IF NOT EXISTS cloud_codes(digest TEXT PRIMARY KEY,expires REAL,location TEXT,percentage INTEGER,used_device TEXT);
 CREATE TABLE IF NOT EXISTS cloud_peers(device_id TEXT PRIMARY KEY,token_hash TEXT,name TEXT,location TEXT,active INTEGER DEFAULT 1,last_contact TEXT);
 CREATE TABLE IF NOT EXISTS cloud_stream(seq INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT UNIQUE);
@@ -143,14 +143,15 @@ class Hub:
         for row in p['masters'].get('documents',[]):
             documents[row['id']]=row
             if any(type(row[k]) is not int or row[k]<0 for k in ('total','paid','tax','discount')) or row['tax']>row['total'] or row['paid']>row['total'] or row['reversed'] not in (0,1):raise ValueError('Invalid invoice amounts.')
-            if row['kind'] not in ('sale','purchase') or row['location'] not in ('Warehouse','Outlet'):raise ValueError('Invalid invoice type or location.')
+            if row['kind'] not in ('sale','purchase','sale_return','purchase_return') or row['location'] not in ('Warehouse','Outlet'):raise ValueError('Invalid invoice type or location.')
             snapshot=json.loads(row['snapshot']);old=db.execute('SELECT * FROM documents WHERE id=?',(row['id'],)).fetchone()
             if old:
                 if {k:v for k,v in dict(old).items() if k!='reversed'}!={k:v for k,v in row.items() if k!='reversed'} or old['reversed'] or not row['reversed']:raise ValueError('Invoice is immutable or already reversed on another node.')
             elif snapshot.get('device_id')!=ident or row['reversed']:raise ValueError('A new invoice must identify this node.')
             if row['party_id']:
-                ledger[row['party_id']]=ledger.get(row['party_id'],0)+(row['total']-row['paid'])*(-1 if row['reversed'] else 1)
+                ledger[row['party_id']]=ledger.get(row['party_id'],0)+(-json.loads(row['snapshot']).get('credit',0) if row['kind'].endswith('_return') else (row['total']-row['paid'])*(-1 if row['reversed'] else 1))
             elif row['paid']!=row['total']:raise ValueError('Credit requires a customer or supplier.')
+            if row['kind'].endswith('_return') and (row['reversed'] or json.loads(row['snapshot']).get('credit',0)!=row['total']-row['paid']):raise ValueError('Invalid credit or debit note.')
         for row in p['append'].get('payments',[]):
             if type(row['amount']) is not int or row['amount']<=0 or row['method'] not in ('Cash','UPI','Card','Bank'):raise ValueError('Invalid payment.')
             ledger[row['party_id']]=ledger.get(row['party_id'],0)-row['amount']
@@ -171,7 +172,7 @@ class Hub:
             doc_id=ref[4:] if ref.startswith('REV-') else ref
             if doc_id in documents:
                 doc=documents[doc_id]
-                positive=(doc['kind']=='purchase')!=bool(doc['reversed'])
+                positive=(doc['kind'] in ('purchase','sale_return'))!=bool(doc['reversed'])
                 if loc!=doc['location'] or (q>0)!=positive:raise ValueError('Invoice movement has the wrong direction or location.')
                 if doc['reversed']:
                     key=(doc_id,pid,loc);reversals[key]=reversals.get(key,0)+q

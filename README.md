@@ -1,10 +1,10 @@
-# Al Hadiya Traders — Business Manager 1.4.0
+# Al Hadiya Traders — Business Manager 2.0.0
 
 An owned Windows and web shop manager for an Indian trading warehouse/retail counter and a takeaway café. Every paired PC has all business functions. Warehouse and Outlet identify transaction locations, not device permissions or separate applications. Internet is not needed for local Windows operations. The browser website requires a connection to its server.
 
 ## Install or update Windows
 
-1. Run `AlHidayaTraders-Setup-1.4.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
+1. Run `AlHidayaTraders-Setup-2.0.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
 2. Open the app from its desktop or Start Menu shortcut. The program serves the interface at `127.0.0.1:8765` and must remain open.
 3. Choose the default transaction location in the header or Settings. Every node can work with both locations, receive purchases, record payments, manage stock and products, define recipes, issue credit bills and change business/GST details.
 4. Confirm real prices, stock, pack quantities, barcodes and tax classifications before live trading. Karnataka defaults to state code 29. The installer is unsigned. Physical printer/scanner acceptance is required; the Windows release workflow executes installation/update checks before publishing a download.
@@ -20,6 +20,18 @@ Each PC runs on one licence file, checked on the PC itself with no internet.
 - Read-only never locks records away: viewing, printing, exporting and backups keep working. New bills, purchases, stock changes and settings wait for a licence.
 
 Supplier side: `tools/license_admin.py` issues licences with a private signing key that is kept off every shop PC and out of this repository. The installer does not include that tool. From 1.4.0 the app is compiled to a native Windows program with Nuitka: no Python runtime, source or bytecode is installed.
+
+## Counter, returns and day close (2.0)
+
+- **Returns.** Open a saved bill or purchase and choose **Return items**. A sale return issues a numbered credit note and can put goods back into the lots they left; a purchase return issues a debit note and takes them out. What is still owed on the original is cancelled first and the rest is refunded.
+- **Split payment.** A bill can be settled by two methods, such as part cash and part UPI.
+- **UPI QR.** Enter the shop's UPI ID in Settings. The checkout screen and the printed bill show a QR for the exact amount. The app does not confirm the payment; staff check the money arrived.
+- **Round-off.** Optional rounding of bills to the nearest rupee, shown as its own line.
+- **Cash drawer.** Open a shift with the opening float. Closing it compares the cash counted with what the records expect and keeps a printable day-end report. Shifts belong to one PC.
+- **Stock count.** Inventory → Stock count: type what is on the shelf and only the differences are posted.
+- **Reports.** Sales are shown net of returns, with credit ageing by 30/60/90 days, a list of credit and debit notes, and an HSN summary export for the accountant.
+- **Bill headings.** Tax invoice when GST is enabled, bill of supply for a composition dealer, sale receipt otherwise. An FSSAI licence number prints when entered.
+- **Own window.** The app opens in its own window when Microsoft Edge or Chrome is installed, and in the default browser otherwise.
 
 ## Lots and expiry
 
@@ -127,10 +139,10 @@ Restore validates the backup and makes a local snapshot before replacement. When
 Node capabilities are equal. The online app still has owner/manager/cashier/viewer permissions for staff accounts, as requested; those apply to people rather than making a warehouse or café PC special. Windows has offline owner setup and individual local staff sign-in with the same roles. Accounts/passwords stay on their installation, while business records sync. Protect its files and do not expose its local HTTP listener publicly.
 
 - Expiry is tracked per lot with earliest-expiry-first selling. MRP is still per product, not per lot.
-- Full internal reversals require refund reconciliation and do not generate statutory GST credit notes. Partial returns are not implemented.
+- Returns issue numbered credit and debit notes. Have your accountant confirm their layout before relying on them for GST filing. A full reversal remains an internal correction.
 - Basic regular-registration GST and percentage cess are present; composition billing, specific cess, IRN/e-way bills, portal filing and accountant-certified books are not provided.
 - Contribution is a management estimate using recorded acquisition/recipe costs, not statutory profit/valuation.
-- Native WhatsApp trading orders and procurement orders are implemented. Challans, split payments, cash shifts, loyalty and Tally integration remain outside this release.
+- Native WhatsApp trading orders and procurement orders are implemented. Challans, loyalty, Tally integration, MRP per lot, supplier schemes, direct receipt-printer and scale drivers, e-invoice and e-way bill, and Indian-language screens remain outside this release.
 - The hosted review uses central SQLite behind Caddy HTTPS with hashed passwords, sessions, CSRF protection and staff roles. It is a review deployment. Its previously scheduled expiry/deletion was cancelled at the user's request. There is no newly scheduled expiry.
 
 ## Source and verification

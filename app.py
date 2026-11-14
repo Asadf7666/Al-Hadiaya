@@ -100,7 +100,7 @@ class Shop:
             defaults = {'name':'Al Hadiya Traders','address':'','phone':'','gstin':'','state':'29','gst_enabled':False,
                         'invoice_prefix':'AH','backup_folder':'','last_backup':'','printer':'80','demo':False,
                         'device_id':secrets.token_hex(8),'device_location':'','sync_folder':'','last_sync':'',
-                        'admin_device_id':'','device_name':'','setup_role':'owner',
+                        'admin_device_id':'','device_name':'','setup_role':'owner','fssai':'','composition':False,'upi_id':'','round_off':False,
                         'cloud_url':'','cloud_business_id':'','cloud_cursor':0,'node_mode':'unified',
                         'whatsapp_enabled':False,'whatsapp_pause_reason':'','whatsapp_phone_id':'','whatsapp_api_version':'','whatsapp_language':'en',
                         'whatsapp_invoice_template':'','whatsapp_payment_template':'','whatsapp_internal_template':'',
@@ -132,6 +132,7 @@ class Shop:
                 if not db.execute('SELECT 1 FROM stocks WHERE product_id=?',(p['id'],)).fetchone():
                     db.execute('INSERT INTO stocks VALUES(?,?,?)',(p['id'],'Outlet',p['stock']))
             __import__('lots').ensure(db)
+            __import__('shifts').ensure(db)
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=15, factory=ClosingConnection)
@@ -166,6 +167,7 @@ class Shop:
             result.update(order_state(db))
             result.update(__import__('procurement').state(db))
             result['lots']=__import__('lots').state(db)
+            result.update(__import__('shifts').state(db,self.settings(db)['device_id']))
             result['stock_alerts']=__import__('stock_alerts').alerts(db,self.settings(db))
             result['campaigns'] = [dict(r) for r in db.execute('SELECT * FROM whatsapp_campaigns ORDER BY created DESC LIMIT 100')]
             result['whatsapp_templates'] = [dict(r) for r in db.execute('SELECT * FROM whatsapp_templates ORDER BY name,language')]
@@ -222,6 +224,8 @@ class Shop:
             return pair_desktop(self,data)
         if action == 'backup':
             return self.backup()
+        if action in ('shift_open','shift_close'):
+            return __import__('shifts').act(self,action,data)
         if action == 'sync':
             return self.sync()
         if action in ('inventory_plan','purchase_order_create','purchase_order_status'):
@@ -332,6 +336,10 @@ class Shop:
                     db.execute('INSERT INTO recipes VALUES(?,?,?)',(pid,iid,number(item['quantity'],True)))
             elif action in ('sale','purchase'):
                 result = self.document(db,action,data)
+            elif action == 'return':
+                result = __import__('returns').create(self,db,data)
+            elif action == 'stock_count':
+                result = __import__('counting').apply(self,db,data)
             elif action == 'adjust':
                 qty = float(data['quantity'])
                 if not __import__('math').isfinite(qty) or qty == 0:
@@ -440,13 +448,24 @@ class Shop:
                 if configuration.get('cloud_url') and data.get('sync_folder'):
                     raise ValueError('This PC uses authenticated server sync. Do not also enable folder sync.')
                 if not is_admin and admin:
-                    shared = ('name','address','phone','gstin','state','gst_enabled','invoice_prefix')
+                    shared = ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','fssai','composition','upi_id','round_off')
                     for key in shared:
                         if key in data and data[key] != configuration[key]:
                             raise ValueError('Business and GST settings are managed on the main warehouse PC.')
-                for k in ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','backup_folder','printer','sync_folder','device_location','device_name','setup_role'):
+                for k in ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','backup_folder','printer','sync_folder','device_location','device_name','setup_role','fssai','composition','upi_id','round_off'):
                     if k in data:
                         v = data[k]
+                        if k in ('composition','round_off'):
+                            v = v in (True,'true','1','on',1)
+                            if k == 'composition' and v and data.get('gst_enabled') in (True,'true','1','on',1):
+                                raise ValueError('A composition dealer issues a bill of supply and does not charge GST. Turn off one of the two.')
+                        if k in ('fssai','upi_id'):
+                            import re
+                            v = str(v or '').strip()
+                            if k == 'fssai' and v and not re.fullmatch(r'[0-9]{14}',v):
+                                raise ValueError('An FSSAI licence number has 14 digits.')
+                            if k == 'upi_id' and v and not re.fullmatch(r'[A-Za-z0-9._-]{2,256}@[A-Za-z][A-Za-z0-9]{1,63}',v):
+                                raise ValueError('Enter the UPI ID as name@bank.')
                         if k in ('name','invoice_prefix'):
                             v = required(v,k)
                         if k == 'invoice_prefix':
@@ -662,7 +681,7 @@ class Shop:
             current = [r for r in after['recipes'] if r['product_id'] == pid]
             if previous != current:
                 payload['recipes'].append({'product_id':pid,'items':current})
-        allowed = ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id','node_mode')
+        allowed = ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id','node_mode','fssai','composition','upi_id','round_off')
         prevsettings = {r['key']:r['value'] for r in before['settings']}
         payload['settings'] = [r for r in after['settings'] if r['key'] in allowed and r['value'] != prevsettings.get(r['key'])]
         eid = f'{time.time_ns():020d}-'+self.settings(db)['device_id']+'-'+secrets.token_hex(4)
@@ -758,7 +777,7 @@ class Shop:
                 for item in recipe['items']:
                     db.execute('INSERT INTO recipes VALUES(?,?,?)',(item['product_id'],item['ingredient_id'],item['quantity']))
         for row in payload['settings']:
-            if row['key'] not in ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id','node_mode'):
+            if row['key'] not in ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id','node_mode','fssai','composition','upi_id','round_off'):
                 raise ValueError('Invalid synced setting.')
             if newer('setting:'+row['key']):
                 db.execute('INSERT OR REPLACE INTO settings VALUES(?,?)',(row['key'],row['value']))
@@ -893,6 +912,8 @@ class Shop:
         if discount > gross:
             raise ValueError('Discount cannot exceed the bill total.')
         total = gross-discount
+        # Indian counters bill to the whole rupee; the difference is shown as its own line.
+        round_off = (int((Decimal(total)/100).quantize(Decimal('1'),rounding=ROUND_HALF_UP))*100-total) if kind == 'sale' and settings.get('round_off') and not order_id else 0
         allocated, taxsum = 0, 0
         ident = ('S' if kind == 'sale' else 'P')
         business_day=__import__('outreach').business_now({'whatsapp_timezone':'Asia/Kolkata'}).date()
@@ -902,7 +923,7 @@ class Shop:
         if count > 99999:
             raise ValueError('Invoice sequence is full. Start a new invoice prefix.')
         docid = prefix+str(count).zfill(5)
-        snapshot = {'shop':{k:settings[k] for k in ('name','address','phone','gstin','state','gst_enabled')},'party':party,'items':[],
+        snapshot = {'shop':{k:settings.get(k,'') for k in ('name','address','phone','gstin','state','gst_enabled','fssai','composition','upi_id')},'party':party,'items':[],
                     'location':location,'supply_state':supply_state,'tax_type':'IGST' if interstate else 'CGST + SGST','device_id':settings['device_id']}
         if order_id:snapshot['trade_order_id']=order_id
         for i,line in enumerate(prepared):
@@ -940,6 +961,17 @@ class Shop:
             # Which lots this line drew from or created, so a reversal returns stock to the same lots.
             if portions:snapshot['items'][-1]['lots']=portions
         if purchase_order:snapshot['purchase_order_id']=purchase_order['id']
+        total += round_off
+        if round_off:snapshot['round_off']=round_off
+        tenders = data.get('payments') or []
+        if tenders:
+            # One bill settled by several methods, such as part cash and part UPI.
+            merged = {}
+            for tender in tenders:
+                amount = money(tender.get('amount',0))
+                if amount:merged[self.method(tender.get('method'))] = merged.get(self.method(tender.get('method')),0)+amount
+            data = {**data,'paid':sum(merged.values())/100,'payment':next(iter(merged)) if len(merged)==1 else 'Split' if merged else 'Cash'}
+            snapshot['payments'] = [{'method':m,'amount':a} for m,a in merged.items()]
         paid = money(data.get('paid',total/100))
         if paid > total:
             raise ValueError('Amount received cannot exceed the total. Record change separately.')
@@ -949,7 +981,7 @@ class Shop:
             raise ValueError('This sale would exceed the customer’s credit limit. Collect more payment or review the customer’s credit limit.')
         if settings.get('node_mode')!='unified' and kind == 'sale' and settings['device_location'] and settings['admin_device_id'] and settings['device_id'] != settings['admin_device_id'] and paid < total:
             raise ValueError('In serverless mode, credit bills are issued at the main trading counter. Additional tills require full payment to avoid conflicting offline customer credit.')
-        payment = self.method(data.get('payment','Cash'))
+        payment = 'Split' if len(snapshot.get('payments',[]))>1 else self.method(data.get('payment','Cash'))
         db.execute('INSERT INTO documents(id,kind,date,party_id,total,tax,paid,payment,discount,reference,snapshot,location) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
                    (docid,kind,now(),pid,total,taxsum,paid,payment,discount,str(data.get('reference','')),json.dumps(snapshot),location))
         for item in snapshot['items']:
@@ -969,6 +1001,10 @@ class Shop:
         doc = db.execute('SELECT * FROM documents WHERE id=?',(data['id'],)).fetchone()
         if not doc or doc['reversed']:
             raise ValueError('Document is missing or already reversed.')
+        if doc['kind'] not in ('sale','purchase'):
+            raise ValueError('A credit or debit note cannot be reversed. Record a new bill instead.')
+        if db.execute("SELECT 1 FROM documents WHERE reference=? AND kind IN ('sale_return','purchase_return')",(doc['id'],)).fetchone():
+            raise ValueError('Items were already returned against this document. Return the remaining items instead of reversing it.')
         location = self.settings(db)['device_location']
         if self.settings(db).get('node_mode')!='unified' and location and doc['location'] != location:
             raise ValueError('Reverse this document on the PC that issued it.')
@@ -1082,7 +1118,7 @@ class Handler(BaseHTTPRequestHandler):
                 with sqlite3.connect(target, factory=ClosingConnection) as destination:
                     source.backup(destination)
                 return self.send(200,target.read_bytes(),'application/vnd.sqlite3')
-        files = {'/':'index.html','/app.js':'app.js','/keyboard.js':'keyboard.js','/style.css':'style.css'}
+        files = {'/':'index.html','/app.js':'app.js','/keyboard.js':'keyboard.js','/style.css':'style.css','/counter.js':'counter.js','/qrcode.js':'qrcode.js'}
         if path not in files:
             return self.send(404,{'error':'Not found'})
         f = ROOT/'static'/files[path]
@@ -1132,6 +1168,22 @@ def restore_backup(shop, source):
             import shutil
             shutil.copytree(source.with_suffix('.media'),shop.folder/'media',dirs_exist_ok=True)
 
+def open_window(url, folder):
+    """Show the app in its own window, without browser tabs or address bar, when Edge or Chrome is installed."""
+    import subprocess
+    roots = [os.environ.get(k) for k in ('ProgramFiles(x86)','ProgramFiles','LOCALAPPDATA')] if os.name == 'nt' else []
+    for root in filter(None,roots):
+        for relative in (r'Microsoft\Edge\Application\msedge.exe',r'Google\Chrome\Application\chrome.exe'):
+            browser = Path(root)/relative
+            if browser.is_file():
+                try:
+                    # A profile of its own keeps the shop window apart from personal browsing and extensions.
+                    subprocess.Popen([str(browser),'--app='+url,'--user-data-dir='+str(Path(folder)/'window-profile'),'--no-first-run','--no-default-browser-check','--window-size=1366,860'])
+                    return
+                except OSError:
+                    pass
+    webbrowser.open(url)
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--port',type=int,default=8765)
@@ -1175,7 +1227,7 @@ def main():
                 if not json.load(response).get('local'):
                     raise ValueError('Port in use')
             if not args.no_browser:
-                webbrowser.open(f'http://127.0.0.1:{args.port}')
+                open_window(f'http://127.0.0.1:{args.port}',args.data_dir)
         except Exception:
             if os.name == 'nt':
                 __import__('ctypes').windll.user32.MessageBoxW(0,'The app port is occupied. Close the other app and try again.','Al Hadiya Traders',0)
@@ -1185,7 +1237,7 @@ def main():
     url = f'http://127.0.0.1:{args.port}'
     print('Al Hadiya Traders:',url,'\nData:',shop.path,'\nKeep this window open. Ctrl+C to close.')
     if not args.no_browser:
-        webbrowser.open(url)
+        open_window(url,args.data_dir)
     def autobackup():
         ticks = 0
         while not stop.wait(30):
