@@ -1,6 +1,8 @@
 """Build a Windows NSIS installer on Linux or Windows; no shop-side Python needed."""
 import hashlib
 import os
+import py_compile
+import sys
 from pathlib import Path
 import shutil
 import subprocess
@@ -10,6 +12,16 @@ import zipfile
 ROOT=Path(__file__).resolve().parents[1]
 VERSION='3.14.8'
 SHA256='a93abe456ab01bd96d7a085b3cdb6566b3063f4241360d114142fbdb07f0a310'
+def compile_modules(target):
+    """Ship bytecode only: the installed app carries no readable Python source."""
+    if sys.version_info[:2]!=tuple(int(n) for n in VERSION.split('.')[:2]):
+        raise SystemExit('Build with Python '+'.'.join(VERSION.split('.')[:2])+' so the bytecode matches the embedded runtime.')
+    shutil.rmtree(target,ignore_errors=True);target.mkdir(parents=True)
+    for source in sorted(ROOT.glob('*.py')):
+        py_compile.compile(str(source),cfile=str(target/(source.stem+'.pyc')),dfile=source.name,doraise=True,
+                           invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+    return target
+
 def main():
     compiler=os.environ.get('MAKENSIS') or shutil.which('makensis')
     if not compiler and os.name=='nt':
@@ -26,6 +38,7 @@ def main():
     runtime=build/'runtime'
     runtime.mkdir(exist_ok=True)
     with zipfile.ZipFile(archive) as z:z.extractall(runtime)
+    compile_modules(build/'compiled')
     (ROOT/'dist').mkdir(exist_ok=True)
     subprocess.run([compiler,'launcher.nsi'],cwd=ROOT/'packaging',check=True)
     product_version=(ROOT/'VERSION').read_text().strip()

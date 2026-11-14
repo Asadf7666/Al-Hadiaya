@@ -1131,6 +1131,9 @@ def main():
     try:
         server = ThreadingHTTPServer(('127.0.0.1',args.port),DesktopHandler)
         server.access=StaffAccess(shop.folder,f'http://127.0.0.1:{args.port}',False,local=True,shop=shop)
+        from licensing import Licence
+        # The registry mirror of the trial clock belongs to the real per-user installation only.
+        server.licence=Licence(shop.folder,registry='AL_HIDAYA_DATA' not in os.environ and args.data_dir==DATA)
         from notifications import protect
         from desktop_http import TOKEN as maintenance_token
         control=shop.folder/'maintenance-credential.bin'
@@ -1160,6 +1163,7 @@ def main():
             ticks += 1
             from health import run
             if ticks % 30==0:run(shop,'backup',lambda:shop.backup(automatic=True))
+            if not server.licence.status()['writable']:continue
             with shop.connect() as db:configured=shop.settings(db)
             if configured['sync_folder'] or configured.get('cloud_url'):run(shop,'sync',lambda:shop.sync())
             run(shop,'daily_summary',lambda:shop.daily_update())

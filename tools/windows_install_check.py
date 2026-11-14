@@ -1,5 +1,5 @@
 """Windows CI: execute the installer, authenticate, bill, update and preserve data."""
-import http.cookiejar,json,os,pathlib,sqlite3,subprocess,time,urllib.request
+import http.cookiejar,json,os,pathlib,sqlite3,subprocess,time,urllib.error,urllib.request
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 def main():
  if os.name!='nt':raise SystemExit('Run this check on Windows.')
@@ -8,7 +8,7 @@ def main():
  version=(ROOT/'VERSION').read_text().strip();setup=ROOT/'dist'/('AlHidayaTraders-Setup-'+version+'.exe')
  def installer():subprocess.run([str(setup),'/S','/D='+str(install)],env=env,check=True,timeout=240)
  def start():
-  process=subprocess.Popen([str(install/'runtime/python.exe'),str(install/'app.py'),'--no-browser'],env=env,stdout=subprocess.DEVNULL,stderr=None)
+  process=subprocess.Popen([str(install/'runtime/python.exe'),str(install/'app.pyc'),'--no-browser'],env=env,stdout=subprocess.DEVNULL,stderr=None)
   for _ in range(100):
    if process.poll() is not None:raise RuntimeError('Installed app exited before serving.')
    try:
@@ -26,6 +26,12 @@ def main():
   with client.open(req,timeout=20) as response:return json.load(response)
  try:
   token=sign_in('/setup')
+  assert (install/'licensing.pyc').exists() and not list(install.glob('*.py')), 'Installed app must be bytecode only.'
+  with client.open(origin+'/license.js',timeout=10) as response:assert b'licencePage' in response.read(), 'Installed licence module missing.'
+  with client.open(origin+'/api/state',timeout=10) as response:licence=json.load(response)['licence']
+  assert licence['status']=='trial' and licence['writable'] and len(licence['installation_id'])==19, 'A fresh installation must start its trial.'
+  try:act('licence_install',{'text':'not a licence'});raise AssertionError('A forged licence was accepted.')
+  except urllib.error.HTTPError as error:assert error.code==400
   with client.open(origin+'/keyboard.js',timeout=10) as response:
    assert b'Find a page or action' in response.read(), 'Installed keyboard module missing.'
   with client.open(origin+'/',timeout=10) as response:assert b'/keyboard.js' in response.read()
@@ -38,7 +44,7 @@ def main():
   subprocess.run([str(install/'Uninstall.exe'),'/S'],env=env,check=True,timeout=120)
   assert (data/'shop.sqlite3').exists() and list((data/'backups').glob('*.sqlite3'))
   with sqlite3.connect(data/'shop.sqlite3') as db:assert db.execute('SELECT stock FROM products WHERE id=?',(pid,)).fetchone()[0]==4
-  print('Windows installer execution, offline owner setup, retry-safe billing, in-place update, account/data retention and uninstall preservation passed.')
+  print('Windows installer execution, bytecode-only install, trial licence, offline owner setup, retry-safe billing, in-place update, account/data retention and uninstall preservation passed.')
  finally:
   if process.poll() is None:process.kill();process.wait(timeout=20)
 if __name__=='__main__':main()

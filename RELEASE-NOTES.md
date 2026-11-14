@@ -1,4 +1,11 @@
-# Al Hadiya Traders 1.2.1
+# Al Hadiya Traders 1.3.0
+
+- Offline licensing: a 60-day trial, then one signed licence file per PC. The Licence page shows the Installation ID, status and days remaining, and installs a `.lic` file without internet.
+- Expiry gives a 14-day reminder and 7 days of grace before the app becomes read-only. Records stay viewable, printable, exportable and backed up in every state.
+- The installer now ships compiled bytecode instead of Python source, and removes source left by earlier releases during an in-place update. Data, accounts and pairing are preserved.
+- Existing installations begin their 60-day trial on the first start after updating.
+
+## 1.2.1
 
 Repeated scans previously rebuilt the whole POS and its catalogue. Basket changes now update only the affected rows/totals, retaining the scan field and product controls. Product, stock and barcode lookups are indexed. Results are paginated: 60 POS products or 100 inventory/profile/history records, with the complete catalogue and history still searchable.
 

@@ -1,13 +1,25 @@
-# Al Hadiya Traders — Business Manager 1.2.1
+# Al Hadiya Traders — Business Manager 1.3.0
 
 An owned Windows and web shop manager for an Indian trading warehouse/retail counter and a takeaway café. Every paired PC has all business functions. Warehouse and Outlet identify transaction locations, not device permissions or separate applications. Internet is not needed for local Windows operations. The browser website requires a connection to its server.
 
 ## Install or update Windows
 
-1. Run `AlHidayaTraders-Setup-1.2.1.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
+1. Run `AlHidayaTraders-Setup-1.3.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
 2. Open the app from its desktop or Start Menu shortcut. The launcher serves the interface at `127.0.0.1:8765` and must remain open.
 3. Choose the default transaction location in the header or Settings. Every node can work with both locations, receive purchases, record payments, manage stock and products, define recipes, issue credit bills and change business/GST details.
 4. Confirm real prices, stock, pack quantities, barcodes and tax classifications before live trading. Karnataka defaults to state code 29. The installer is unsigned. Physical printer/scanner acceptance is required; the Windows release workflow executes installation/update checks before publishing a download.
+
+## Licensing
+
+Each PC runs on one licence file, checked on the PC itself with no internet.
+
+- A new installation starts a 60-day trial with every function available.
+- Open **Licence**, copy the **Installation ID** and send it to your supplier. Install the `.lic` file you receive on that same page (owner only).
+- A licence is tied to the PC it was issued for. Reinstalling Windows or moving to another PC needs a new licence for the new Installation ID.
+- A reminder appears 14 days before expiry. After expiry there are 7 days of grace, then the app becomes read-only.
+- Read-only never locks records away: viewing, printing, exporting and backups keep working. New bills, purchases, stock changes and settings wait for a licence.
+
+Supplier side: `tools/license_admin.py` issues licences with a private signing key that is kept off every shop PC and out of this repository. The installer does not include that tool. From 1.3.0 the installer ships compiled bytecode rather than Python source.
 
 ## Keyboard access
 

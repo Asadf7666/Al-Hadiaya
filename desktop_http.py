@@ -4,11 +4,14 @@ from http.cookies import SimpleCookie
 from urllib.parse import parse_qs,urlparse
 from app import Handler as Base,ROOT,TOKEN
 from staff_access import StaffAccess
+from licensing import LicenceRequired
 
 LOGIN='''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><body class="auth-screen"><main class="card auth-card"><div class="eyebrow">AL HADIYA TRADERS</div><h1>{title}</h1><p>{intro}</p><form method="post" action="{action}"><label for="login-username">Username</label><input id="login-username" autofocus name="username" autocomplete="username" required><label for="login-password">Password</label><input id="login-password" type="password" name="password" autocomplete="{autocomplete}" minlength="12" required><button class="btn gold" type="submit">{button}</button></form><p class="error">{error}</p><small>Your business records stay on this PC. Sign-in works offline.</small></main></body></html>'''
 class DesktopHandler(Base):
  @property
  def access(self):return self.server.access
+ @property
+ def licence(self):return getattr(self.server,'licence',None)
  def output(self,status,body,mime='application/json',headers=None):
   raw=json.dumps(body).encode() if mime=='application/json' else body.encode() if isinstance(body,str) else body
   self.send_response(status)
@@ -28,15 +31,18 @@ class DesktopHandler(Base):
   user=self.access.session(self.headers.get('Cookie'))
   if not user:return self.output(401,{'error':'Sign in again.'}) if path.startswith('/api/') else self.redirect('/setup' if self.first() else '/login')
   if path=='/api/session':return self.output(200,{'token':user['csrf']})
-  if path=='/api/state':return self.output(200,self.access.state(user))
+  if path=='/api/state':
+   state=self.access.state(user)
+   if self.licence:state['licence']=self.licence.status()
+   return self.output(200,state)
   if path=='/api/users':
    if user['role']!='owner':return self.output(403,{'error':'Owner permission required.'})
    with self.shop.connect() as db:return self.output(200,[dict(r) for r in db.execute('SELECT id,username,name,role,location,active FROM web_users')])
   if path.startswith('/api/backup'):
    if user['role']!='owner':return self.output(403,{'error':'Owner permission required.'})
    if path=='/api/backup-bundle':return self.output(200,__import__('backup_bundle').bundle(self.shop),'application/zip',{'Content-Disposition':'attachment; filename=AlHadiya-business-backup.zip'})
-  if path=='/team.js':return self.output(200,(ROOT/'static/team.js').read_bytes(),'text/javascript')
-  if path=='/':return self.output(200,(ROOT/'static/index.html').read_text(encoding='utf-8').replace('</body>','<script src="/team.js"></script></body>'),'text/html; charset=utf-8')
+  if path in ('/team.js','/license.js'):return self.output(200,(ROOT/'static'/path[1:]).read_bytes(),'text/javascript')
+  if path=='/':return self.output(200,(ROOT/'static/index.html').read_text(encoding='utf-8').replace('</body>','<script src="/team.js"></script><script src="/license.js"></script></body>'),'text/html; charset=utf-8')
   return super().do_GET()
  def do_POST(self):
   if not self.valid_host():return self.output(403,{'error':'Local access only.'})
@@ -66,6 +72,13 @@ class DesktopHandler(Base):
    if action=='logout':
     with self.shop.connect() as db:db.execute('DELETE FROM web_sessions WHERE digest=?',(user['digest'],))
     return self.output(200,{'ok':True},headers={'Set-Cookie':'ah_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'})
+   if action in ('licence_install','licence_remove'):
+    if user['role']!='owner':raise PermissionError('Owner permission required.')
+    if not self.licence:raise ValueError('Licensing is not active in this session.')
+    status=self.licence.install(data.get('text')) if action=='licence_install' else self.licence.remove()
+    with self.shop.connect() as db:self.shop.audit(db,action,{'licence_id':status['licence_id'],'status':status['status'],'owner_id':user['id']})
+    return self.output(200,status)
+   if self.licence:self.licence.require(action)
    if action in ('staff_user','staff_disable','staff_enable','staff_password','restore_bundle','shutdown','location'):
     if user['role']!='owner':raise PermissionError('Owner permission required.')
     if action=='staff_user':self.access.user(data);return self.output(200,{'ok':True})
@@ -82,6 +95,7 @@ class DesktopHandler(Base):
    data={k:v for k,v in data.items() if not k.startswith('_request_')}
    data['_request_id']=self.headers.get('X-Request-ID','');data['_request_actor']=str(user['id'])+':'+user['role']
    return self.output(200,self.access.act(user,action,data))
+  except LicenceRequired as e:return self.output(402,{'error':str(e),'licence':True})
   except PermissionError as e:return self.output(403,{'error':str(e)})
   except (ValueError,KeyError,TypeError) as e:return self.output(400,{'error':str(e)})
   except Exception:return self.output(500,{'error':'Operation could not finish. Review saved records before retrying.'})

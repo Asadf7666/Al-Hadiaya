@@ -16,3 +16,7 @@ cloud/data/
 *.log
 *.png
 *.jpg
+
+# Licence signing keys and issued licences never belong in the repository.
+*.key
+*.lic

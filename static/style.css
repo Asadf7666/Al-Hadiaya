@@ -12,3 +12,17 @@
 
 /* Compact controls for sustained keyboard entry. */
 .record-pager{display:flex;align-items:center;gap:10px;justify-content:flex-end;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--line);font-size:11px}.record-pager span{margin-right:auto;color:var(--muted)}.entry-hint{display:block;width:100%;font-size:11px;line-height:1.7;color:#526552;margin-top:8px}.entry-results{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:6px;margin-top:6px}.entry-results[hidden]{display:none}.entry-results button{border:0;background:white;width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;text-align:left;padding:10px 12px}.entry-results button[aria-selected=true]{background:#e8f2e9;color:#254b36}.entry-results small{color:#647366}.entry-results p{padding:12px}.modal-footer .entry-hint{order:3;text-align:right}
+/* Licence */
+.licence-bar{display:flex;justify-content:space-between;align-items:center;gap:14px;background:#faf0dd;border:1px solid #ecdcb8;color:#7d6130;padding:11px 16px;border-radius:6px;font-size:12px;line-height:1.5;margin-bottom:20px}
+.licence-bar.red{background:#faeaea;border-color:#eccaca;color:#8f4040}
+.licence-bar .btn{width:auto;flex:none;padding:7px 11px}
+.licence-pill{font-size:11px;padding:7px 12px}
+.licence-id{font-family:ui-monospace,Consolas,"Cascadia Mono",monospace;font-size:26px;font-weight:600;letter-spacing:2px;color:var(--ink);background:var(--bg);border:1px dashed var(--gold);border-radius:6px;padding:20px 12px;text-align:center;user-select:all;overflow-wrap:anywhere}
+.licence-text{font-family:ui-monospace,Consolas,"Cascadia Mono",monospace;font-size:11px;line-height:1.5;resize:vertical;min-height:110px}
+.licence-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.licence-actions .btn{width:auto}
+.licence-chip{display:block;width:100%;text-align:left;background:none;border:1px solid #3a443c;border-radius:5px;color:#c2cbbd;font-size:11px;padding:7px 10px;margin:10px 0;cursor:pointer}
+.licence-chip.warn{border-color:#8c7340;color:#e6c98a}
+.licence-chip.red{border-color:#8f4b4b;color:#f0b3b3}
+.licence-chip:focus-visible{outline:2px solid #36735b;outline-offset:2px}
+@media(max-width:700px){.licence-bar{flex-direction:column;align-items:flex-start}.licence-id{font-size:19px;letter-spacing:1px}}
