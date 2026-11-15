@@ -86,6 +86,21 @@ class CounterTest(unittest.TestCase):
         self.shop.act('settings',{'fssai':'11223344556677','upi_id':'alhadiya@okhdfcbank','composition':True})
         shop=self.doc(self.sale(1))['snapshot']['shop'];self.assertEqual((shop['fssai'],shop['upi_id'],shop['composition']),('11223344556677','alhadiya@okhdfcbank',True))
 
+    def test_screens_load_recent_history_and_older_records_on_request(self):
+        old=self.sale(1);recent=self.sale(1);credit=self.sale(2,party_id=self.customer,paid=0)
+        with self.shop.connect() as db:
+            db.execute("UPDATE documents SET date='2024-01-05T10:00:00+05:30' WHERE id IN (?,?)",(old,credit))
+            db.execute("INSERT INTO expenses(date,name,amount,method) VALUES('2024-01-05T10:00:00+05:30','Old rent',100,'Cash')")
+        state=self.shop.state();ids={d['id'] for d in state['documents']}
+        self.assertIn(recent,ids);self.assertNotIn(old,ids);self.assertIn(credit,ids,'An unpaid bill stays visible whatever its age.')
+        self.assertEqual((state['history']['complete'],state['expenses'],state['lines']),(False,[],[]))
+        everything=self.shop.state('2000-01-01');self.assertIn(old,{d['id'] for d in everything['documents']})
+        self.assertTrue(everything['history']['complete']);self.assertEqual(len(everything['expenses']),1)
+        with self.assertRaises(ValueError):self.shop.state('not-a-date')
+        self.shop.HISTORY_DOCUMENTS=2
+        try:self.sale(1);self.sale(1);self.assertGreaterEqual(len(self.shop.state()['documents']),2)
+        finally:del self.shop.HISTORY_DOCUMENTS
+
     def test_notes_and_their_stock_reach_another_pc(self):
         other_dir=tempfile.TemporaryDirectory();self.addCleanup(other_dir.cleanup);other=Shop(other_dir.name)
         sale=self.sale(10,party_id=self.customer,paid=100);self.shop.act('return',{'id':sale,'reason':'x','items':[{'line':0,'quantity':4}]})

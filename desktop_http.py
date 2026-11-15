@@ -32,7 +32,7 @@ class DesktopHandler(Base):
   if not user:return self.output(401,{'error':'Sign in again.'}) if path.startswith('/api/') else self.redirect('/setup' if self.first() else '/login')
   if path=='/api/session':return self.output(200,{'token':user['csrf']})
   if path=='/api/state':
-   state=self.access.state(user)
+   state=self.access.state(user,self.history_from())
    if self.licence:state['licence']=self.licence.status()
    return self.output(200,state)
   if path=='/api/users':

@@ -28,7 +28,11 @@ def main():
   token=sign_in('/setup')
   assert not [p for p in install.rglob('*') if p.suffix in ('.py','.pyc')] and not (install/'runtime').exists(), 'Installed app must be the native program only.'
   with client.open(origin+'/license.js',timeout=10) as response:assert b'licencePage' in response.read(), 'Installed licence module missing.'
-  with client.open(origin+'/api/state',timeout=10) as response:licence=json.load(response)['licence']
+  with client.open(origin+'/api/state',timeout=10) as response:first=json.load(response)
+  licence=first['licence'];assert isinstance(first['printers'],list) and all(isinstance(n,str) for n in first['printers']), 'Windows printer list failed.'
+  print('Printers seen by the installed app:',first['printers'])
+  for script in ('/app-core.js','/app-start.js','/counter.js','/qrcode.js'):
+   with client.open(origin+script,timeout=10) as response:assert response.read(), script
   assert licence['status']=='trial' and licence['writable'] and len(licence['installation_id'])==19, 'A fresh installation must start its trial.'
   try:act('licence_install',{'text':'not a licence'});raise AssertionError('A forged licence was accepted.')
   except urllib.error.HTTPError as error:assert error.code==400

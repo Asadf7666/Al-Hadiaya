@@ -133,6 +133,7 @@ class Shop:
                     db.execute('INSERT INTO stocks VALUES(?,?,?)',(p['id'],'Outlet',p['stock']))
             __import__('lots').ensure(db)
             __import__('shifts').ensure(db)
+            db.executescript('CREATE INDEX IF NOT EXISTS documents_date ON documents(date);CREATE INDEX IF NOT EXISTS documents_reference ON documents(reference);CREATE INDEX IF NOT EXISTS movements_reference ON movements(reference);CREATE INDEX IF NOT EXISTS lines_document ON lines(document_id);')
             __import__('tracking').install(db)
 
     def connect(self):
@@ -147,10 +148,28 @@ class Shop:
     def audit(self, db, action, details):
         db.execute('INSERT INTO audit(date,action,details) VALUES(?,?,?)', (now(),action,json.dumps(details)))
 
-    def state(self):
+    HISTORY_DAYS = 31
+    HISTORY_DOCUMENTS = 1500
+
+    def state(self, since=None):
+        """Everything a screen needs. Transaction history is sent from a recent date onward;
+        `since` (YYYY-MM-DD) asks for more, so a load stays quick however long the shop has traded."""
         with self.lock, self.connect() as db:
             result = {table:[dict(r) for r in db.execute('SELECT * FROM '+table+' ORDER BY rowid DESC')] for table in
-                      ['products','recipes','parties','documents','lines','expenses','payments','stocks','devices','allocations']}
+                      ['products','recipes','parties','stocks','devices','allocations']}
+            if since:
+                floor = dt.date.fromisoformat(str(since)).isoformat()
+            else:
+                floor = (dt.date.today()-dt.timedelta(days=self.HISTORY_DAYS)).isoformat()
+                crowded = db.execute('SELECT date FROM documents ORDER BY date DESC LIMIT 1 OFFSET ?',(self.HISTORY_DOCUMENTS-1,)).fetchone()
+                if crowded:floor = max(floor,crowded[0][:10])
+            # Unpaid bills stay visible whatever their age, so dues and their ageing are always complete.
+            result['documents'] = [dict(r) for r in db.execute("""SELECT * FROM documents WHERE date>=? OR (reversed=0 AND total>paid AND kind IN ('sale','purchase')
+                AND party_id IN (SELECT id FROM parties WHERE balance>0)) ORDER BY rowid DESC""",(floor,))]
+            for table in ('expenses','payments'):
+                result[table] = [dict(r) for r in db.execute('SELECT * FROM '+table+' WHERE date>=? ORDER BY rowid DESC',(floor,))]
+            result['lines'] = []
+            result['history'] = {'since':floor,'complete':not db.execute('SELECT 1 FROM documents WHERE date<? LIMIT 1',(floor,)).fetchone()}
             result['movements'] = [dict(r) for r in db.execute('SELECT * FROM movements ORDER BY id DESC LIMIT 200')]
             result['settings'] = self.settings(db)
             result['sync_errors'] = [dict(r) for r in db.execute('SELECT * FROM sync_errors')]
@@ -1074,6 +1093,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options','nosniff')
         self.end_headers()
         self.wfile.write(raw)
+    def history_from(self):
+        from urllib.parse import parse_qs
+        value = parse_qs(urlparse(self.path).query).get('since',[''])[0]
+        try:
+            return dt.date.fromisoformat(value).isoformat() if value else None
+        except ValueError:
+            return None
     def valid_host(self):
         return self.headers.get('Host','') in (f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}')
     def do_GET(self):
@@ -1090,17 +1116,19 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/session':
             return self.send(200,{'token':TOKEN})
         if path == '/api/state':
-            return self.send(200,self.shop.state())
+            return self.send(200,self.shop.state(self.history_from()))
         if path == '/api/backup-download':
             with self.shop.lock, self.shop.connect() as source:
                 target = self.shop.folder/'download.sqlite3'
                 with sqlite3.connect(target, factory=ClosingConnection) as destination:
                     source.backup(destination)
                 return self.send(200,target.read_bytes(),'application/vnd.sqlite3')
-        files = {'/':'index.html','/app.js':'app.js','/keyboard.js':'keyboard.js','/style.css':'style.css','/counter.js':'counter.js','/qrcode.js':'qrcode.js'}
-        if path not in files:
+        import re
+        # Screen files live flat in the static folder; only plain script and style names are served.
+        name = 'index.html' if path == '/' else path[1:] if re.fullmatch(r'/[a-z0-9-]+\.(js|css)',path) else ''
+        f = ROOT/'static'/name
+        if not name or name in ('team.js','license.js') or not f.is_file():
             return self.send(404,{'error':'Not found'})
-        f = ROOT/'static'/files[path]
         content = f.read_bytes()
         return self.send(200,content,{'html':'text/html; charset=utf-8','js':'text/javascript; charset=utf-8','css':'text/css; charset=utf-8'}[f.suffix[1:]])
     def do_POST(self):

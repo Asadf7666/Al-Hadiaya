@@ -1,10 +1,10 @@
-# Al Hadiya Traders — Business Manager 2.0.0
+# Al Hadiya Traders — Business Manager 2.1.0
 
 An owned Windows and web shop manager for an Indian trading warehouse/retail counter and a takeaway café. Every paired PC has all business functions. Warehouse and Outlet identify transaction locations, not device permissions or separate applications. Internet is not needed for local Windows operations. The browser website requires a connection to its server.
 
 ## Install or update Windows
 
-1. Run `AlHidayaTraders-Setup-2.0.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
+1. Run `AlHidayaTraders-Setup-2.1.0.exe` on 64-bit Windows 10/11, under the same Windows account and installation directory as an existing app. The installer closes the app and creates a verified pre-update backup. It preserves the database, identity and pairing credential. Do not replace sample data or pair again during an upgrade of an already paired node.
 2. Open the app from its desktop or Start Menu shortcut. The program serves the interface at `127.0.0.1:8765` and must remain open.
 3. Choose the default transaction location in the header or Settings. Every node can work with both locations, receive purchases, record payments, manage stock and products, define recipes, issue credit bills and change business/GST details.
 4. Confirm real prices, stock, pack quantities, barcodes and tax classifications before live trading. Karnataka defaults to state code 29. The installer is unsigned. Physical printer/scanner acceptance is required; the Windows release workflow executes installation/update checks before publishing a download.
@@ -33,6 +33,16 @@ Supplier side: `tools/license_admin.py` issues licences with a private signing k
 - **Bill headings.** Tax invoice when GST is enabled, bill of supply for a composition dealer, sale receipt otherwise. An FSSAI licence number prints when entered.
 - **Own window.** The app opens in its own window when Microsoft Edge or Chrome is installed, and in the default browser otherwise.
 
+## Receipt printer (2.1)
+
+Settings → Receipt printer sends bills straight to a thermal printer with no print dialog.
+
+- Choose the printer from the list of Windows printers, pick the paper (58 mm or 80 mm), save, then use **Print test**.
+- Works with ESC/POS receipt printers installed in Windows. If the test prints garbled text, the printer does not accept ESC/POS: choose the print dialog instead.
+- Options: print each bill as soon as it is saved, and open the cash drawer on cash bills. The drawer must be cabled to the printer.
+- The printed bill carries the same lines as the screen, including the UPI QR. Amounts print as "Rs." because receipt printers lack the rupee sign.
+- This was built to the ESC/POS standard and checked by tests, not on a physical printer. Confirm layout, cutting, the QR and the drawer on the shop's own printer before relying on it.
+
 ## Lots and expiry
 
 One product can hold several lots, each with its own lot number and expiry date.
@@ -42,6 +52,7 @@ One product can hold several lots, each with its own lot number and expiry date.
 - **Inventory → Lots** lists every lot with its location, quantity and days left. Lots within 30 days of expiry are flagged; alerts start 7 days before.
 - Transfers and wastage can name a lot; otherwise transfers send in-date stock first and wastage clears the oldest dates first.
 - Reversing a bill or purchase returns stock to the same lots. Lots sync between PCs with the transactions that changed them.
+- Each lot can carry the MRP printed on its packs. A bill cannot charge more than the MRP of the lots it draws from.
 - A single product expiry recorded in an earlier release becomes a lot over the stock on hand at the first start after updating.
 
 ## Keyboard access
@@ -138,11 +149,11 @@ Restore validates the backup and makes a local snapshot before replacement. When
 
 Node capabilities are equal. The online app still has owner/manager/cashier/viewer permissions for staff accounts, as requested; those apply to people rather than making a warehouse or café PC special. Windows has offline owner setup and individual local staff sign-in with the same roles. Accounts/passwords stay on their installation, while business records sync. Protect its files and do not expose its local HTTP listener publicly.
 
-- Expiry is tracked per lot with earliest-expiry-first selling. MRP is still per product, not per lot.
+- Expiry and MRP are tracked per lot with earliest-expiry-first selling.
 - Returns issue numbered credit and debit notes. Have your accountant confirm their layout before relying on them for GST filing. A full reversal remains an internal correction.
 - Basic regular-registration GST and percentage cess are present; composition billing, specific cess, IRN/e-way bills, portal filing and accountant-certified books are not provided.
 - Contribution is a management estimate using recorded acquisition/recipe costs, not statutory profit/valuation.
-- Native WhatsApp trading orders and procurement orders are implemented. Challans, loyalty, Tally integration, MRP per lot, supplier schemes, direct receipt-printer and scale drivers, e-invoice and e-way bill, and Indian-language screens remain outside this release.
+- Native WhatsApp trading orders and procurement orders are implemented. Challans, loyalty, Tally integration, supplier schemes, weighing-scale drivers, e-invoice and e-way bill, and Indian-language screens remain outside this release.
 - The hosted review uses central SQLite behind Caddy HTTPS with hashed passwords, sessions, CSRF protection and staff roles. It is a review deployment. Its previously scheduled expiry/deletion was cancelled at the user's request. There is no newly scheduled expiry.
 
 ## Source and verification

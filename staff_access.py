@@ -62,8 +62,8 @@ class StaffAccess:
         with self.shop.connect() as db:
             row=db.execute('SELECT u.id,u.username,u.name,u.role,u.location,s.csrf,s.digest FROM web_sessions s JOIN web_users u ON u.id=s.user_id WHERE s.digest=? AND s.expires>? AND u.active=1',(hashlib.sha256(token.value.encode()).hexdigest(),time.time())).fetchone()
             return dict(row) if row else None
-    def state(self,user):
-        result=self.shop.state();s=result['settings'];allocated=result['allocations']
+    def state(self,user,since=None):
+        result=self.shop.state(since);s=result['settings'];allocated=result['allocations']
         if not self.local:
             for key in ('sync_folder','backup_folder','last_backup','last_sync'):s[key]=''
         result['local']=self.local;result['online']=not self.local;result['web_user']={k:user[k] for k in ('id','username','name','role','location') if k in user}
