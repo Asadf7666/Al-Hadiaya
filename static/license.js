@@ -34,6 +34,16 @@ function licencePage() {
     ) +
     `<div class="stats">${stat('Status', licenceLabel(l), '◈', l.writable ? 'All functions available' : 'Read-only until licensed')}${stat('Days remaining', licenceDays(l), '◷', daysFoot)}${stat('Licensed to', esc(l.customer || '—'), '❏', has ? esc(l.edition) + ' edition' : 'No licence installed')}${stat('Expires', esc(l.expires || (has ? 'Never' : '—')), '▣', has ? 'Licence ' + esc(l.licence_id) : 'Trial ends automatically')}</div>` +
     (l.problem ? `<div class="licence-bar red" role="alert"><span>${esc(l.problem)}</span></div>` : '') +
+    (has
+      ? `<div class="card" style="margin-bottom:22px"><div class="card-head"><h2>Licence details</h2><span class="pill">${esc(l.type_label)}</span></div>${table(
+          ['Type', 'Tied to', 'Term', 'Support and updates', 'Included'],
+          [
+            `<tr><td><strong>${esc(l.type_label)}</strong></td><td>${esc(l.bound_to)}</td><td>${l.expires ? 'Until ' + esc(l.expires) : 'Perpetual'}</td><td>${l.support_until ? 'Versions released up to ' + esc(l.support_until) : 'Not limited'}</td><td>${
+              l.features ? esc(l.features.map((f) => l.feature_labels[f]).join(', ') || 'Core features only') : 'All features'
+            }</td></tr>`,
+          ],
+        )}</div>`
+      : '') +
     `<div class="settings-layout"><div class="card"><div class="card-head"><h2>Installation ID</h2><button class="btn secondary small" onclick="copyInstallationId()">Copy</button></div><div class="card-content"><div class="licence-id" id="installation-id">${esc(l.installation_id)}</div><div class="help">Send this ID to your supplier. The licence file you receive works on this PC only and needs no internet.</div></div></div>` +
     `<div class="card"><div class="card-head"><h2>${has ? 'Replace or renew licence' : 'Install a licence'}</h2></div><div class="card-content">` +
     (owner

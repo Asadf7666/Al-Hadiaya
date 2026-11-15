@@ -1253,7 +1253,7 @@ def main():
             if ticks % 30==0:run(shop,'backup',lambda:shop.backup(automatic=True))
             if not server.licence.status()['writable']:continue
             with shop.connect() as db:configured=shop.settings(db)
-            if configured['sync_folder'] or configured.get('cloud_url'):run(shop,'sync',lambda:shop.sync())
+            if (configured['sync_folder'] or configured.get('cloud_url')) and server.licence.allows('sync'):run(shop,'sync',lambda:shop.sync())
             run(shop,'daily_summary',lambda:shop.daily_update())
             from notifications import process_outbox
             run(shop,'whatsapp',lambda:process_outbox(shop))

@@ -1,7 +1,8 @@
 """Vendor tool: create the signing key and issue licence files. Never ship this or the key.
 
   python tools/license_admin.py keygen  --key signing.key
-  python tools/license_admin.py issue   --key signing.key --customer "Shop name" --machine 1A2B-3C4D-5E6F-7A8B --days 365 --out shop.lic
+  python tools/license_admin.py issue   --key signing.key --customer "Shop name" --type first --days 365 --out shop.lic
+  python tools/license_admin.py issue   --key signing.key --customer "Shop name" --type single --machine 1A2B-3C4D-5E6F-7A8B --perpetual --support-until 2027-11-15
   python tools/license_admin.py inspect shop.lic
 """
 import argparse,datetime as dt,os,secrets,sys
@@ -27,32 +28,46 @@ def issue(args):
     seed=load_key(args.key)
     if licensing.public_key(seed).hex()!=licensing.PUBLIC_KEY:
         raise SystemExit('This key does not match the public key built into the app, so its licences would be rejected.')
-    today=dt.date.today()
+    today=dt.date.today();kind=args.type or ('single' if args.machine else 'site')
+    if kind=='single' and not args.machine:raise SystemExit('A single-PC licence needs --machine with the Installation ID from the Licence screen.')
+    if kind!='single' and args.machine:raise SystemExit('Only a single-PC licence takes --machine.')
     if args.perpetual:expires=None
     elif args.expires:expires=dt.date.fromisoformat(args.expires).isoformat()
     elif args.days:expires=(today+dt.timedelta(days=args.days)).isoformat()
     else:raise SystemExit('Choose --days, --expires or --perpetual.')
     if expires and expires<today.isoformat():raise SystemExit('That expiry date has already passed.')
-    payload={'v':1,'product':licensing.PRODUCT,'id':args.id or 'AHT-'+today.strftime('%Y%m%d')+'-'+secrets.token_hex(3).upper(),
+    if kind=='trial' and not expires:raise SystemExit('An evaluation licence needs --days or --expires.')
+    payload={'v':2,'product':licensing.PRODUCT,'type':kind,'id':args.id or 'AHT-'+today.strftime('%Y%m%d')+'-'+secrets.token_hex(3).upper(),
              'customer':args.customer.strip(),'edition':args.edition,'issued':today.isoformat(),'expires':expires,
-             'machine':'*' if args.any_machine else licensing.normalise_machine(args.machine)}
+             'machine':licensing.normalise_machine(args.machine) if kind=='single' else '*'}
+    if kind=='first':payload['activate_by']=(today+dt.timedelta(days=args.activate_within)).isoformat()
+    if args.support_until:payload['support_until']=dt.date.fromisoformat(args.support_until).isoformat()
+    if args.features is not None:
+        payload['features']=[f for f in args.features.split(',') if f]
+        unknown=[f for f in payload['features'] if f not in licensing.FEATURES]
+        if unknown:raise SystemExit('Unknown feature: '+', '.join(unknown)+'. Choose from '+', '.join(licensing.FEATURES)+'.')
     if not payload['customer']:raise SystemExit('Enter the customer name.')
     text=licensing.pack(payload,seed);licensing.parse(text)
     out=Path(args.out or payload['id']+'.lic');out.write_text(text,encoding='utf-8')
-    print('Licence',payload['id'],'for',payload['customer'],'\nPC:',payload['machine'],'\nExpires:',expires or 'never','\nFile:',out)
+    print('Licence',payload['id'],'for',payload['customer'],'\nType:',licensing.TYPES[kind],'\nPC:',payload['machine'] if kind=='single' else 'first PC it is installed on, by '+payload['activate_by'] if kind=='first' else 'any',
+          '\nExpires:',expires or 'never','\nSupport until:',payload.get('support_until','not limited'),'\nFeatures:',', '.join(payload['features']) if 'features' in payload else 'all','\nFile:',out)
 
 def inspect(args):
     try:payload=licensing.parse(Path(args.file).read_text(encoding='utf-8'))
     except (OSError,ValueError) as error:raise SystemExit('Not valid: '+str(error))
-    for key in ('id','customer','edition','machine','issued','expires'):print(f'{key:9}',payload.get(key) if payload.get(key) is not None else 'never')
+    for key in ('id','customer','type','edition','machine','issued','expires','activate_by','support_until','features'):
+        if key in payload:print(f'{key:14}',payload[key] if payload[key] is not None else 'never')
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
     commands=parser.add_subparsers(dest='command',required=True)
     k=commands.add_parser('keygen');k.add_argument('--key',required=True);k.set_defaults(run=keygen)
     i=commands.add_parser('issue');i.add_argument('--key',required=True);i.add_argument('--customer',required=True)
-    target=i.add_mutually_exclusive_group(required=True)
-    target.add_argument('--machine',help='Installation ID shown under Settings, Licence on the PC');target.add_argument('--any-machine',action='store_true',help='Not tied to one PC')
+    i.add_argument('--type',choices=sorted(licensing.TYPES),help='single: one named PC. first: locks to the first PC it is installed on. site: any PC of the business. trial: dated evaluation.')
+    i.add_argument('--machine',help='Installation ID from the Licence screen, for a single-PC licence')
+    i.add_argument('--activate-within',type=int,default=licensing.ACTIVATION_DAYS,help='Days a first-PC licence may wait before its first installation')
+    i.add_argument('--support-until',help='YYYY-MM-DD: the licence covers versions released up to this date')
+    i.add_argument('--features',help='Comma-separated optional modules to include ('+', '.join(licensing.FEATURES)+'). Omit for all; pass an empty value for none.')
     i.add_argument('--days',type=int);i.add_argument('--expires',help='YYYY-MM-DD');i.add_argument('--perpetual',action='store_true')
     i.add_argument('--edition',default='Standard');i.add_argument('--id');i.add_argument('--out');i.set_defaults(run=issue)
     v=commands.add_parser('inspect');v.add_argument('file');v.set_defaults(run=inspect)

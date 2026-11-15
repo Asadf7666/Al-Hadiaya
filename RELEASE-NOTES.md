@@ -4,6 +4,7 @@
 - Direct receipt printing to ESC/POS thermal printers, with optional print-on-save and cash-drawer opening. Confirm on the shop's own printer before relying on it.
 - Faster at any size: saving a bill no longer slows as history grows (about 20 times faster at 3,000 bills), and screens load recent records first with older ones on request. Unpaid bills are always shown.
 - The screen code is split into readable feature files. No change to how the app is used.
+- Licence types: single PC, first PC installed, site and evaluation, each dated or perpetual, with an optional support period and module list. The Licence screen shows the type and what it is tied to.
 
 ## 2.0.0
 

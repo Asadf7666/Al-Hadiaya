@@ -89,6 +89,49 @@ class LicensingTest(unittest.TestCase):
         self.assertEqual(self.lic.remove()['status'],'trial')
         self.assertEqual(len(licensing.machine_id()),19);self.assertEqual(licensing.machine_id(),licensing.machine_id())
 
+    def v2(self,kind,**extra):
+        return licensing.pack({'v':2,'product':licensing.PRODUCT,'type':kind,'id':'AHT-'+kind.upper(),'customer':'Test Shop','issued':'2026-11-14','expires':'2027-11-14','machine':'*',**extra},self.seed)
+
+    def test_first_pc_licence_ties_itself_to_the_pc_it_is_first_installed_on(self):
+        text=self.v2('first',activate_by='2026-12-14')
+        s=self.lic.install(text);self.assertEqual((s['status'],s['type'],s['type_label']),('licensed','first','First PC installed'));self.assertIn(self.machine,s['bound_to'])
+        # The data folder copied to another PC carries the file and the record, but not the licence.
+        other=Licence(self.tmp.name,machine='FFFF-0000-FFFF-0000',clock=self.clock)
+        self.assertEqual(other.status()['status'],'trial');self.assertIn('tied to another PC',other.status()['problem'])
+        with self.assertRaisesRegex(ValueError,'already tied to another PC'):other.install(text)
+        # After the activation date the file cannot start a new installation, but this PC keeps working and can reinstall it.
+        self.clock.days(60);self.assertTrue(self.lic.status()['writable'])
+        fresh=tempfile.TemporaryDirectory();self.addCleanup(fresh.cleanup)
+        with self.assertRaisesRegex(ValueError,'had to be installed by 2026-12-14'):Licence(fresh.name,machine='AAAA-1111-AAAA-1111',clock=self.clock).install(text)
+        self.lic.remove();self.assertEqual(self.lic.install(text)['status'],'licensed')
+        # A file dropped into place without being installed is not accepted, and a forged record does not help.
+        dropped=Licence(fresh.name,machine='AAAA-1111-AAAA-1111',clock=self.clock);(Path(fresh.name)/'licence'/'licence.lic').write_text(text)
+        self.assertIn('Install the licence',dropped.status()['problem'])
+        (Path(fresh.name)/'licence'/'activation.json').write_text(json.dumps({'id':'AHT-FIRST','machine':'AAAA-1111-AAAA-1111','when':1,'seal':'0'*64}))
+        self.assertFalse(Licence(fresh.name,machine='AAAA-1111-AAAA-1111',clock=self.clock).status()['licence_id'])
+
+    def test_site_trial_single_and_support_period(self):
+        self.assertEqual(self.lic.install(self.v2('site'))['bound_to'],'Any PC of this business')
+        self.assertEqual(self.lic.install(self.v2('trial'))['type_label'],'Evaluation')
+        single=self.lic.install(self.v2('single',machine=self.machine));self.assertEqual(single['type'],'single')
+        for bad in (self.v2('trial',expires=None),self.v2('single'),self.v2('site',machine=self.machine),self.v2('first'),self.v2('floating'),self.v2('site',features=['fax']),self.v2('site',support_until='soon')):
+            with self.assertRaises(ValueError):self.lic.install(bad)
+        self.assertEqual(self.lic.install(self.v2('site',expires=None,support_until=licensing.BUILD_DATE))['support_until'],licensing.BUILD_DATE)
+        with self.assertRaisesRegex(ValueError,'covers versions released up to 2026-01-01'):self.lic.install(self.v2('site',expires=None,support_until='2026-01-01'))
+        self.assertEqual(licensing.parse(self.issue(machine='*'))['type'],'site');self.assertEqual(licensing.parse(self.issue())['type'],'single')
+
+    def test_feature_list_limits_optional_modules_only(self):
+        self.lic.require('sync');self.lic.require('whatsapp_send')
+        self.lic.install(self.v2('site',features=['sync']))
+        self.lic.require('sync');self.lic.require('sale');self.assertTrue(self.lic.allows('sync'));self.assertFalse(self.lic.allows('whatsapp'))
+        for action in ('whatsapp_send','campaign_create','commerce_settings'):
+            with self.assertRaisesRegex(LicenceRequired,'not included in this licence'):self.lic.require(action)
+        self.lic.install(self.v2('site'));self.lic.require('whatsapp_send')
+
+    def test_withdrawn_licence_ids_are_refused(self):
+        for ident in sorted(licensing.REVOKED):
+            with self.assertRaisesRegex(ValueError,'withdrawn'):self.lic.install(self.v2('site',id=ident))
+
     def test_shipped_public_key_rejects_keys_it_did_not_sign(self):
         licensing.PUBLIC_KEY=self.real
         with self.assertRaises(ValueError):licensing.parse(self.issue())

@@ -11,7 +11,14 @@ PRODUCT='al-hadiya-traders'
 PUBLIC_KEY='76066e9cb0498bb685e773002c87de2e3c101716039b0b159b8974a079328561'
 TRIAL_DAYS=60
 # Licences withdrawn after issue. A replacement carries a new id.
-REVOKED={'AHT-OWNER-0001'}
+REVOKED={'AHT-OWNER-0001','AHT-2026-0001'}
+# Release date of this build. A licence with a support period covers builds released within it.
+BUILD_DATE='2026-11-15'
+# Licence types. Each can be dated or perpetual and may carry a support period and a feature list.
+TYPES={'single':'Single PC','first':'First PC installed','site':'Site (any PC)','trial':'Evaluation'}
+# Optional modules a licence can leave out. A licence without a feature list includes everything.
+FEATURES={'sync':'Sync between PCs','whatsapp':'WhatsApp updates and orders'}
+ACTIVATION_DAYS=30
 GRACE_DAYS=7
 WARN_DAYS=14
 DAY=86400
@@ -144,11 +151,20 @@ def parse(text):
     try:
         payload=json.loads(raw)
     except ValueError:raise ValueError('The licence contents are unreadable.')
-    if not isinstance(payload,dict) or payload.get('product')!=PRODUCT or payload.get('v')!=1:
+    if not isinstance(payload,dict) or payload.get('product')!=PRODUCT or payload.get('v') not in (1,2):
         raise ValueError('This licence is for a different product.')
     _date(payload.get('issued'),'issue')
     if payload.get('expires') is not None:_date(payload['expires'],'expiry')
     payload['machine']=normalise_machine(payload.get('machine'))
+    # Version 1 files had no type: bound to a PC or not.
+    kind=payload.setdefault('type','site' if payload['machine']=='*' else 'single')
+    if kind not in TYPES or (kind=='single')!=(payload['machine']!='*'):raise ValueError('The licence type is not recognised by this version.')
+    if kind=='trial' and payload.get('expires') is None:raise ValueError('An evaluation licence must have an end date.')
+    for key,label in (('activate_by','activation'),('support_until','support')):
+        if payload.get(key) is not None:payload[key]=_date(payload[key],label).isoformat()
+    if kind=='first' and not payload.get('activate_by'):raise ValueError('The licence contents are incomplete.')
+    features=payload.get('features')
+    if features is not None and (not isinstance(features,list) or any(f not in FEATURES for f in features)):raise ValueError('The licence lists a feature this version does not know.')
     if payload.get('id') in REVOKED:raise ValueError('This licence was withdrawn. Install the replacement you were sent.')
     for key in ('id','customer'):
         if not isinstance(payload.get(key),str) or not payload[key].strip():raise ValueError('The licence contents are incomplete.')
@@ -217,12 +233,56 @@ class Licence:
                 except OSError:pass
             return max(now,self.last) if now<self.last-ROLLBACK_TOLERANCE else now
 
+    # A first-PC licence is tied to the PC it is first installed on. The tie is a sealed
+    # record kept beside the trial clock (and in the registry), so a copied data folder
+    # does not carry the licence to another PC, and the file cannot start a new
+    # installation after its activation date.
+    def _activation_seal(self,ident,machine,when):
+        return hmac.new(_SEAL,f'activation:{ident}:{machine}:{when}'.encode(),hashlib.sha256).hexdigest()
+    def _activations(self):
+        found=[]
+        try:found.append(json.loads((self.folder/'activation.json').read_text()))
+        except (OSError,ValueError):pass
+        if self.registry:
+            try:
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER,r'Software\AlHadiyaTraders\Licence') as key:found.append(json.loads(winreg.QueryValueEx(key,'Activation')[0]))
+            except (OSError,ValueError,TypeError):pass
+        return [a for a in found if isinstance(a,dict) and all(isinstance(a.get(k),t) for k,t in (('id',str),('machine',str),('when',int),('seal',str)))
+                and hmac.compare_digest(a['seal'],self._activation_seal(a['id'],a['machine'],a['when']))]
+    def _activated(self,ident):
+        """'here', 'elsewhere' or None for a first-PC licence id."""
+        records=[a for a in self._activations() if a['id']==ident]
+        return None if not records else 'here' if all(a['machine']==self.machine for a in records) else 'elsewhere'
+    def _activate(self,ident):
+        when=int(self.clock());record={'id':ident,'machine':self.machine,'when':when,'seal':self._activation_seal(ident,self.machine,when)}
+        temp=self.folder/'activation.tmp';temp.write_text(json.dumps(record));os.replace(temp,self.folder/'activation.json')
+        if self.registry:
+            try:
+                import winreg
+                with winreg.CreateKey(winreg.HKEY_CURRENT_USER,r'Software\AlHadiyaTraders\Licence') as key:winreg.SetValueEx(key,'Activation',0,winreg.REG_SZ,json.dumps(record))
+            except OSError:pass
+    def _fits(self,payload):
+        """Why this licence cannot run on this PC with this build, or '' when it can."""
+        if payload['type']=='single' and payload['machine']!=self.machine:
+            return f'This licence was issued for installation {payload["machine"]}. This PC is {self.machine}.'
+        if payload.get('support_until') and payload['support_until']<BUILD_DATE:
+            return f'This licence covers versions released up to {payload["support_until"]}. Renew support to use this version.'
+        return ''
+
     def install(self,text):
         payload=parse(text)
-        if payload['machine'] not in ('*',self.machine):
-            raise ValueError(f'This licence was issued for installation {payload["machine"]}. This PC is {self.machine}.')
+        problem=self._fits(payload)
+        if problem:raise ValueError(problem)
         with self.lock:
             if (self._days_left(payload,self.now()) or 0)<-GRACE_DAYS:raise ValueError(f'This licence expired on {payload["expires"]}. Ask for a renewal.')
+            if payload['type']=='first':
+                state=self._activated(payload['id'])
+                if state=='elsewhere':raise ValueError('This licence is already tied to another PC. Ask your supplier for a licence for this PC.')
+                if state is None:
+                    today=dt.date.fromtimestamp(self.now()).isoformat()
+                    if today>payload['activate_by']:raise ValueError(f'This licence had to be installed by {payload["activate_by"]}. Ask your supplier for a fresh file.')
+                    self._activate(payload['id'])
             temp=self.file.with_suffix('.tmp');temp.write_text(text.strip()+'\n',encoding='utf-8');os.replace(temp,self.file)
             self.cache=None
         return self.status()
@@ -245,19 +305,26 @@ class Licence:
     def _status(self,now):
         trial_left=max(0,TRIAL_DAYS-max(0,now-self.first)//DAY)
         base={'installation_id':self.machine,'trial_days':TRIAL_DAYS,'trial_days_left':int(trial_left),'grace_days':GRACE_DAYS,
-              'licence_id':'','customer':'','edition':'','issued':'','expires':'','days_left':None,'problem':''}
+              'licence_id':'','customer':'','edition':'','issued':'','expires':'','days_left':None,'problem':'',
+              'type':'','type_label':'','bound_to':'','support_until':'','features':None,'feature_labels':FEATURES}
         payload=None
         if self.file.exists():
             try:
                 payload=parse(self.file.read_text(encoding='utf-8'))
-                if payload['machine'] not in ('*',self.machine):
-                    payload=None;base['problem']='The installed licence belongs to another PC.'
+                problem=self._fits(payload)
+                if not problem and payload['type']=='first':
+                    state=self._activated(payload['id'])
+                    problem='' if state=='here' else 'The installed licence is tied to another PC.' if state=='elsewhere' else 'Install the licence from this screen to tie it to this PC.'
+                if problem:
+                    payload=None;base['problem']='The installed licence belongs to another PC.' if 'issued for installation' in problem else problem
             except (ValueError,OSError) as error:
                 base['problem']=str(error)
         if payload:
             left=self._days_left(payload,now)
             base.update(licence_id=payload['id'],customer=payload['customer'],edition=str(payload.get('edition') or 'Standard'),
-                        issued=payload['issued'],expires=payload['expires'] or '',days_left=left)
+                        issued=payload['issued'],expires=payload['expires'] or '',days_left=left,type=payload['type'],type_label=TYPES[payload['type']],
+                        bound_to='Any PC of this business' if payload['type'] in ('site','trial') else 'This PC ('+self.machine+')',
+                        support_until=payload.get('support_until') or '',features=payload.get('features'))
             if left is None or left>=0:
                 return {**base,'status':'licensed','writable':True,'warn':left is not None and left<=WARN_DAYS,
                         'message':'Licensed to '+payload['customer']+('.' if left is None else f' until {payload["expires"]}.')}
@@ -276,6 +343,18 @@ class Licence:
         if action in ALWAYS_ALLOWED:return
         status=self.status()
         if not status['writable']:raise LicenceRequired(status['message'])
+        feature=feature_of(action)
+        if feature and not self.allows(feature,status):raise LicenceRequired(FEATURES[feature]+' is not included in this licence.')
+    def allows(self,feature,status=None):
+        """Whether an optional module is available. Everything is included during the trial."""
+        status=status or self.status()
+        return status['features'] is None or feature in status['features']
+
+def feature_of(action):
+    """The optional module an action belongs to, if any."""
+    if action=='sync' or action.startswith('cloud_'):return 'sync'
+    if action.startswith(('whatsapp','campaign','commerce')) or action in ('internal_contact','trade_order_status','trade_order_reprice'):return 'whatsapp'
+    return None
 
 class LicenceRequired(Exception):
     pass

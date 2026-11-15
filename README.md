@@ -15,11 +15,13 @@ Each PC runs on one licence file, checked on the PC itself with no internet.
 
 - A new installation starts a 60-day trial with every function available.
 - Open **Settings → Licence → Manage licence**, copy the **Installation ID** and send it to your supplier. Install the `.lic` file you receive on that same screen (owner only).
-- A licence is tied to the PC it was issued for. Reinstalling Windows or moving to another PC needs a new licence for the new Installation ID.
+- Licence types: **Single PC** (issued for one Installation ID), **First PC installed** (ties itself to the first PC it is installed on, and must be installed by its activation date), **Site** (any PC of the business) and **Evaluation** (a dated trial extension).
+- Any type can be dated or perpetual, can carry a support period (it then covers versions released up to that date), and can list which optional modules it includes: sync between PCs and WhatsApp.
+- A first-PC licence cannot be moved by copying the data folder, and its file cannot start a new installation after the activation date. Without internet, nothing can stop the same file being installed on a second PC inside that window; use a Single PC licence where that matters.
 - A reminder appears 14 days before expiry. After expiry there are 7 days of grace, then the app becomes read-only.
 - Read-only never locks records away: viewing, printing, exporting and backups keep working. New bills, purchases, stock changes and settings wait for a licence.
 
-Supplier side: `tools/license_admin.py` issues licences with a private signing key that is kept off every shop PC and out of this repository. The installer does not include that tool. From 1.4.0 the app is compiled to a native Windows program with Nuitka: no Python runtime, source or bytecode is installed.
+Supplier side: `tools/license_admin.py issue --type single|first|site|trial` issues licences with a private signing key that is kept off every shop PC and out of this repository. The installer does not include that tool. From 1.4.0 the app is compiled to a native Windows program with Nuitka: no Python runtime, source or bytecode is installed.
 
 ## Counter, returns and day close (2.0)
 
