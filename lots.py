@@ -26,6 +26,9 @@ def clean(data):
 
 def ensure(db):
     db.executescript(DDL)
+    # The MRP printed on a pack can differ between lots of the same product.
+    if 'mrp' not in {r[1] for r in db.execute('PRAGMA table_info(lots)')}:
+        db.execute('ALTER TABLE lots ADD COLUMN mrp INTEGER NOT NULL DEFAULT 0')
     # Releases before 1.4.0 kept one expiry per product. Turn it into a lot over the stock on hand.
     for p in db.execute("SELECT id,expiry FROM products WHERE expiry<>''").fetchall():
         try:expiry=clean({'expiry':p['expiry']})[1]
@@ -38,16 +41,17 @@ def ensure(db):
 def tracked(db,pid,location):
     return db.execute('SELECT COALESCE(SUM(quantity),0) FROM lots WHERE product_id=? AND location=?',(pid,location)).fetchone()[0]
 
-def add(db,pid,location,lot,expiry,quantity):
+def add(db,pid,location,lot,expiry,quantity,mrp=0):
     db.execute('INSERT OR IGNORE INTO lots(product_id,location,lot,expiry,quantity) VALUES(?,?,?,?,0)',(pid,location,lot,expiry))
+    if mrp:db.execute('UPDATE lots SET mrp=? WHERE product_id=? AND location=? AND lot=? AND expiry=?',(int(mrp),pid,location,lot,expiry))
     db.execute('UPDATE lots SET quantity=MAX(0,ROUND(quantity+?,6)) WHERE product_id=? AND location=? AND lot=? AND expiry=?',(quantity,pid,location,lot,expiry))
 
 def breakdown(db,product,location,stock):
     """Lots on hand, plus one untracked entry for stock that has no lot record."""
-    rows=[{'lot':r['lot'],'expiry':r['expiry'],'quantity':r['quantity'],'tracked':True} for r in
-          db.execute('SELECT lot,expiry,quantity FROM lots WHERE product_id=? AND location=? AND quantity>?',(product['id'],location,EPSILON))]
+    rows=[{'lot':r['lot'],'expiry':r['expiry'],'quantity':r['quantity'],'mrp':r['mrp'],'tracked':True} for r in
+          db.execute('SELECT lot,expiry,quantity,mrp FROM lots WHERE product_id=? AND location=? AND quantity>?',(product['id'],location,EPSILON))]
     loose=stock-sum(r['quantity'] for r in rows)
-    if loose>EPSILON:rows.append({'lot':'','expiry':product['expiry'] or '','quantity':loose,'tracked':False})
+    if loose>EPSILON:rows.append({'lot':'','expiry':product['expiry'] or '','quantity':loose,'mrp':0,'tracked':False})
     return rows
 
 def receive(db,pid,location,quantity,lot):
@@ -56,10 +60,11 @@ def receive(db,pid,location,quantity,lot):
     parts=lot if isinstance(lot,list) else [{**lot,'quantity':quantity}]
     result=[];left=quantity
     for part in parts:
-        name,expiry=clean(part);amount=min(float(part['quantity']),left)
-        if amount<=EPSILON or not (name or expiry):continue
-        add(db,pid,location,name,expiry,amount);left-=amount
-        result.append({'product_id':pid,'lot':name,'expiry':expiry,'quantity':round(amount,6)})
+        name,expiry=clean(part);amount=min(float(part['quantity']),left);mrp=int(part.get('mrp') or 0)
+        if mrp<0:raise ValueError('MRP cannot be negative.')
+        if amount<=EPSILON or not (name or expiry or mrp):continue
+        add(db,pid,location,name,expiry,amount,mrp);left-=amount
+        result.append({'product_id':pid,'lot':name,'expiry':expiry,'quantity':round(amount,6),**({'mrp':mrp} if mrp else {})})
     return result
 
 def take(db,product,location,quantity,stock,mode='any',lot=None,strict=False):
@@ -77,7 +82,7 @@ def take(db,product,location,quantity,stock,mode='any',lot=None,strict=False):
         row['quantity']-=amount;left-=amount
         if row['tracked']:
             add(db,product['id'],location,row['lot'],row['expiry'],-amount)
-            used.append({'product_id':product['id'],'lot':row['lot'],'expiry':row['expiry'],'quantity':round(amount,6)})
+            used.append({'product_id':product['id'],'lot':row['lot'],'expiry':row['expiry'],'quantity':round(amount,6),**({'mrp':row['mrp']} if row['mrp'] else {})})
     for wanted in ([] if not lot else lot if isinstance(lot,list) else [{**lot,'quantity':quantity}]):
         name,expiry=clean(wanted)
         row=next((r for r in rows if r['tracked'] and r['lot']==name and r['expiry']==expiry),None)
@@ -119,12 +124,12 @@ def deltas(before,after):
     old={key(r):r['quantity'] for r in before};result=[]
     for r in after:
         delta=round(r['quantity']-old.get(key(r),0),6)
-        if delta:result.append({'product_id':r['product_id'],'location':r['location'],'lot':r['lot'],'expiry':r['expiry'],'delta':delta})
+        if delta:result.append({'product_id':r['product_id'],'location':r['location'],'lot':r['lot'],'expiry':r['expiry'],'delta':delta,**({'mrp':r['mrp']} if r.get('mrp') else {})})
     return result
 
 def check(row):
     """Validate one synced lot change."""
-    if set(row)!={'product_id','location','lot','expiry','delta'} or row['location'] not in ('Warehouse','Outlet'):raise ValueError('Invalid synced lot.')
+    if set(row)-{'mrp'}!={'product_id','location','lot','expiry','delta'} or type(row.get('mrp',0)) is not int or row.get('mrp',0)<0 or row['location'] not in ('Warehouse','Outlet'):raise ValueError('Invalid synced lot.')
     if type(row['product_id']) is not int or not isinstance(row['delta'],(int,float)) or not math.isfinite(row['delta']):raise ValueError('Invalid synced lot quantity.')
     if not isinstance(row['lot'],str) or not isinstance(row['expiry'],str) or clean(row)!=(row['lot'],row['expiry']):raise ValueError('Invalid synced lot.')
 
@@ -132,4 +137,4 @@ def apply(db,rows):
     for row in rows:
         check(row)
         if not db.execute('SELECT 1 FROM products WHERE id=?',(row['product_id'],)).fetchone():raise ValueError('Lot refers to an unknown product.')
-        add(db,row['product_id'],row['location'],row['lot'],row['expiry'],float(row['delta']))
+        add(db,row['product_id'],row['location'],row['lot'],row['expiry'],float(row['delta']),row.get('mrp',0))

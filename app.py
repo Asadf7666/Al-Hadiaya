@@ -100,7 +100,7 @@ class Shop:
             defaults = {'name':'Al Hadiya Traders','address':'','phone':'','gstin':'','state':'29','gst_enabled':False,
                         'invoice_prefix':'AH','backup_folder':'','last_backup':'','printer':'80','demo':False,
                         'device_id':secrets.token_hex(8),'device_location':'','sync_folder':'','last_sync':'',
-                        'admin_device_id':'','device_name':'','setup_role':'owner','fssai':'','composition':False,'upi_id':'','round_off':False,
+                        'admin_device_id':'','device_name':'','setup_role':'owner','fssai':'','composition':False,'upi_id':'','round_off':False,'receipt_printer':'','receipt_columns':'48','drawer_kick':False,'receipt_auto':False,
                         'cloud_url':'','cloud_business_id':'','cloud_cursor':0,'node_mode':'unified',
                         'whatsapp_enabled':False,'whatsapp_pause_reason':'','whatsapp_phone_id':'','whatsapp_api_version':'','whatsapp_language':'en',
                         'whatsapp_invoice_template':'','whatsapp_payment_template':'','whatsapp_internal_template':'',
@@ -133,6 +133,7 @@ class Shop:
                     db.execute('INSERT INTO stocks VALUES(?,?,?)',(p['id'],'Outlet',p['stock']))
             __import__('lots').ensure(db)
             __import__('shifts').ensure(db)
+            __import__('tracking').install(db)
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=15, factory=ClosingConnection)
@@ -167,6 +168,7 @@ class Shop:
             result.update(order_state(db))
             result.update(__import__('procurement').state(db))
             result['lots']=__import__('lots').state(db)
+            result['printers']=__import__('receipt_printer').printers()
             result.update(__import__('shifts').state(db,self.settings(db)['device_id']))
             result['stock_alerts']=__import__('stock_alerts').alerts(db,self.settings(db))
             result['campaigns'] = [dict(r) for r in db.execute('SELECT * FROM whatsapp_campaigns ORDER BY created DESC LIMIT 100')]
@@ -224,6 +226,8 @@ class Shop:
             return pair_desktop(self,data)
         if action == 'backup':
             return self.backup()
+        if action in ('print_receipt','print_shift','print_test','open_drawer'):
+            return __import__('receipt_printer').act(self,action,data)
         if action in ('shift_open','shift_close'):
             return __import__('shifts').act(self,action,data)
         if action == 'sync':
@@ -347,7 +351,7 @@ class Shop:
                 import lots
                 pid = int(data['product_id']); place = self.location(data.get('location','Outlet'))
                 if qty > 0:
-                    chosen = dict(zip(('lot','expiry'),lots.clean(data)))
+                    chosen = {**dict(zip(('lot','expiry'),lots.clean(data))),'mrp':money(data.get('lot_mrp') or 0)}
                 else:
                     chosen = lots.resolve(db,data['lot_id'],pid,place) if data.get('lot_id') else None
                 # A write-off clears the oldest dates first unless one lot was picked.
@@ -452,10 +456,14 @@ class Shop:
                     for key in shared:
                         if key in data and data[key] != configuration[key]:
                             raise ValueError('Business and GST settings are managed on the main warehouse PC.')
-                for k in ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','backup_folder','printer','sync_folder','device_location','device_name','setup_role','fssai','composition','upi_id','round_off'):
+                for k in ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','backup_folder','printer','sync_folder','device_location','device_name','setup_role','fssai','composition','upi_id','round_off','receipt_printer','receipt_columns','drawer_kick','receipt_auto'):
                     if k in data:
                         v = data[k]
-                        if k in ('composition','round_off'):
+                        if k == 'receipt_columns' and v not in ('32','42','48'):
+                            raise ValueError('Choose 32, 42 or 48 characters per line.')
+                        if k == 'receipt_printer':
+                            v = str(v or '')[:200]
+                        if k in ('composition','round_off','drawer_kick','receipt_auto'):
                             v = v in (True,'true','1','on',1)
                             if k == 'composition' and v and data.get('gst_enabled') in (True,'true','1','on',1):
                                 raise ValueError('A composition dealer issues a bill of supply and does not charge GST. Turn off one of the two.')
@@ -610,7 +618,7 @@ class Shop:
         if gst > 100 or cess > 100:
             raise ValueError('Tax rates must be between 0 and 100.')
         # Expiry belongs to a lot of stock, not to the product: it is recorded with the opening stock below.
-        opening_lot = dict(zip(('lot','expiry'),__import__('lots').clean(data)))
+        opening_lot = {**dict(zip(('lot','expiry'),__import__('lots').clean(data))),'mrp':0}
         expiry = ''
         values = (required(data.get('name')),required(data.get('sku'),'SKU'),required(data.get('category'),'Category'),
                   required(data.get('unit'),'Unit'),money(data.get('price',0)),money(data.get('cost',0)),gst,cess,
@@ -639,51 +647,17 @@ class Shop:
         return {'id':pid}
 
     def capture(self, db):
-        return {t:[dict(r) for r in db.execute('SELECT * FROM '+t)] for t in
-                ('products','parties','recipes','stocks','documents','lines','movements','payments','expenses','settings','devices','allocations','commerce_products','trade_orders','inventory_plans','purchase_orders','lots')}
+        """Mark the start of an action whose changes will become one sync event."""
+        __import__('tracking').begin(db)
+        # Set AL_HIDAYA_VERIFY_CAPTURE=1 to check every event against the older whole-table comparison.
+        return __import__('capture_check').snapshot(db) if os.environ.get('AL_HIDAYA_VERIFY_CAPTURE') else True
 
     def record_event(self, db, before):
-        after = self.capture(db)
-        payload = {'masters':{},'append':{},'deltas':{'stocks':[],'parties':[],'allocations':[],'lots':__import__('lots').deltas(before['lots'],after['lots'])},'settings':[],'recipes':[]}
-        for table in ('products','parties','documents','devices','commerce_products','trade_orders','inventory_plans','purchase_orders'):
-            old = {r['id']:r for r in before[table]}
-            changed = []
-            for r in after[table]:
-                row = dict(r)
-                excluded = 'stock' if table == 'products' else 'balance' if table == 'parties' else None
-                if excluded:
-                    row.pop(excluded)
-                prev = dict(old.get(r['id'],{}))
-                if excluded:
-                    prev.pop(excluded,None)
-                if prev != row:
-                    changed.append(row)
-                if table == 'parties':
-                    delta = r['balance']-old.get(r['id'],{}).get('balance',0)
-                    if delta:
-                        payload['deltas']['parties'].append({'id':r['id'],'delta':delta})
-            payload['masters'][table] = changed
-        oldstock = {(r['product_id'],r['location']):r['quantity'] for r in before['stocks']}
-        for r in after['stocks']:
-            delta = r['quantity']-oldstock.get((r['product_id'],r['location']),0)
-            if delta:
-                payload['deltas']['stocks'].append({'product_id':r['product_id'],'location':r['location'],'delta':delta})
-        oldallocations = {(r['device_id'],r['product_id'],r['location']):r['quantity'] for r in before['allocations']}
-        for r in after['allocations']:
-            delta = r['quantity']-oldallocations.get((r['device_id'],r['product_id'],r['location']),0)
-            if delta:
-                payload['deltas']['allocations'].append({'device_id':r['device_id'],'product_id':r['product_id'],'location':r['location'],'delta':delta})
-        for table in ('lines','movements','payments','expenses'):
-            oldids = {r['id'] for r in before[table]}
-            payload['append'][table] = [{k:v for k,v in r.items() if k != 'id'} for r in after[table] if r['id'] not in oldids]
-        for pid in {r['product_id'] for r in before['recipes']+after['recipes']}:
-            previous = [r for r in before['recipes'] if r['product_id'] == pid]
-            current = [r for r in after['recipes'] if r['product_id'] == pid]
-            if previous != current:
-                payload['recipes'].append({'product_id':pid,'items':current})
-        allowed = ('name','address','phone','gstin','state','gst_enabled','invoice_prefix','demo','admin_device_id','node_mode','fssai','composition','upi_id','round_off')
-        prevsettings = {r['key']:r['value'] for r in before['settings']}
-        payload['settings'] = [r for r in after['settings'] if r['key'] in allowed and r['value'] != prevsettings.get(r['key'])]
+        import tracking
+        payload = tracking.payload(db)
+        if before is not True:
+            __import__('capture_check').compare(db,before,payload)
+        tracking.begin(db)
         eid = f'{time.time_ns():020d}-'+self.settings(db)['device_id']+'-'+secrets.token_hex(4)
         db.execute('INSERT INTO sync_events VALUES(?,?,?,?)',(eid,now(),self.settings(db)['device_id'],json.dumps(payload)))
         db.execute('INSERT INTO sync_seen VALUES(?)',(eid,))
@@ -907,7 +881,7 @@ class Shop:
                 raise ValueError('Selling price exceeds MRP: '+p['name'])
             linegross = int((Decimal(price)*Decimal(str(qty))).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
             gross += linegross
-            prepared.append({'p':dict(p),'quantity':qty,'price':price,'gross':linegross,'lot':dict(zip(('lot','expiry'),__import__('lots').clean(item))) if kind == 'purchase' else None})
+            prepared.append({'p':dict(p),'quantity':qty,'price':price,'gross':linegross,'lot':{**dict(zip(('lot','expiry'),__import__('lots').clean(item))),'mrp':money(item.get('mrp') or 0)} if kind == 'purchase' else None})
         discount = money(data.get('discount',0)) if kind == 'sale' else 0
         if discount > gross:
             raise ValueError('Discount cannot exceed the bill total.')
@@ -949,6 +923,11 @@ class Shop:
                     cost += int(Decimal(r['cost'])*Decimal(str(used)))
             else:
                 portions = self.movement(db,p['id'],qty if kind == 'purchase' else -qty,docid,kind.title(),location,lot=line['lot'],take='sale')
+                if kind == 'sale':
+                    # The price must not exceed the MRP printed on the packs actually handed over.
+                    over = next((part for part in portions if part.get('mrp') and line['price'] > part['mrp']),None)
+                    if over:
+                        raise ValueError(f"Selling price ₹{line['price']/100:.2f} exceeds the MRP ₹{over['mrp']/100:.2f} printed on lot {over['lot'] or over['expiry'] or 'in stock'} of {p['name']}.")
                 if kind == 'purchase':
                     oldvalue = Decimal(str(p['stock']))*p['cost']
                     newcost = int(((oldvalue+Decimal(str(qty))*line['price'])/Decimal(str(p['stock']+qty))).quantize(Decimal('1'),rounding=ROUND_HALF_UP))

@@ -74,7 +74,7 @@
     });
     for (const [selector, names] of [['.purchase-line',['Product','Quantity','Cost per unit']],['.recipe-line',['Ingredient','Quantity per serving']]]) {
       document.querySelectorAll(selector).forEach((row, index) => row.querySelectorAll('select,input').forEach((el,n) => {
-        const label=selector==='.purchase-line'?(el.matches('[data-purchase-search]')?'Product':el.matches('[data-qty]')?'Quantity':el.matches('[data-price]')?'Cost per unit':el.matches('[data-lot]')?'Lot number':el.matches('[data-expiry]')?'Expiry date':'Selected product'):(names[n]||'Value');el.setAttribute('aria-label',label+' '+(index+1));
+        const label=selector==='.purchase-line'?(el.matches('[data-purchase-search]')?'Product':el.matches('[data-qty]')?'Quantity':el.matches('[data-price]')?'Cost per unit':el.matches('[data-lot]')?'Lot number':el.matches('[data-expiry]')?'Expiry date':el.matches('[data-mrp]')?'MRP on lot':'Selected product'):(names[n]||'Value');el.setAttribute('aria-label',label+' '+(index+1));
       }));
     }
     for (const [id, label] of [['node-location','Transaction location'],['online-location','Transaction location'],['sale-party','Customer for current bill'],['discount','Bill discount in rupees']]) document.getElementById(id)?.setAttribute('aria-label',label);

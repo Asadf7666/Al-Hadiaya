@@ -83,13 +83,26 @@ class LotsTest(unittest.TestCase):
         self.buy(3,'NEW',day(30));self.sell(3)
         self.assertEqual(self.held(),{('',day(-1)):9})
 
+    def test_each_lot_keeps_its_own_mrp_and_a_bill_cannot_exceed_it(self):
+        buy=lambda lot,expiry,mrp:self.shop.act('purchase',{'party_id':self.supplier,'location':'Warehouse','items':[{'product_id':self.pid,'quantity':5,'price':20,'lot':lot,'expiry':expiry,'mrp':mrp}]})
+        buy('OLD',day(20),28);buy('NEW',day(200),35)
+        with self.shop.connect() as db:self.assertEqual({r['lot']:r['mrp'] for r in db.execute('SELECT lot,mrp FROM lots')},{'OLD':2800,'NEW':3500})
+        with self.assertRaisesRegex(ValueError,r'exceeds the MRP ₹28.00 printed on lot OLD'):self.sell(1)
+        self.assertEqual(self.stock(),10)
+        self.shop.act('adjust',{'product_id':self.pid,'quantity':-5,'note':'Returned old packs','location':'Warehouse'})
+        self.sell(2);self.assertEqual(self.held(),{('NEW',day(200)):3})
+        self.shop.act('transfer',{'product_id':self.pid,'source':'Warehouse','target':'Outlet','quantity':1})
+        with self.shop.connect() as db:self.assertEqual(db.execute("SELECT mrp FROM lots WHERE location='Outlet'").fetchone()[0],3500)
+
     def test_lots_follow_transactions_to_another_pc(self):
         other_dir=tempfile.TemporaryDirectory();self.addCleanup(other_dir.cleanup);other=Shop(other_dir.name)
-        self.buy(10,'B1',day(20));self.buy(10,'B2',day(90));sale=self.sell(12);self.shop.act('reverse',{'id':sale,'reason':'x'});self.sell(3)
+        for lot,expiry in (('B1',day(20)),('B2',day(90))):self.shop.act('purchase',{'party_id':self.supplier,'location':'Warehouse','items':[{'product_id':self.pid,'quantity':10,'price':20,'lot':lot,'expiry':expiry,'mrp':40}]})
+        sale=self.sell(12);self.shop.act('reverse',{'id':sale,'reason':'x'});self.sell(3)
         with self.shop.connect() as db:events=[{'id':r['id'],'device':r['device'],'payload':json.loads(r['payload'])} for r in db.execute('SELECT * FROM sync_events ORDER BY id')]
         with other.connect() as db:
             for event in events:other.apply_event(db,event)
             copied={(r['lot'],r['expiry']):r['quantity'] for r in db.execute('SELECT * FROM lots WHERE quantity>0')}
+            self.assertEqual({r['mrp'] for r in db.execute('SELECT mrp FROM lots')},{4000})
         self.assertEqual(copied,self.held());self.assertEqual(copied,{('B1',day(20)):7,('B2',day(90)):10})
         for bad in ({'product_id':self.pid,'location':'Moon','lot':'','expiry':'','delta':1},{'product_id':self.pid,'location':'Outlet','lot':'','expiry':'soon','delta':1},
                     {'product_id':self.pid,'location':'Outlet','lot':'','expiry':'','delta':float('inf')},{'product_id':self.pid,'location':'Outlet','lot':'','expiry':''}):

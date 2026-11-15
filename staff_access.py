@@ -3,8 +3,8 @@ import hashlib,hmac,secrets,threading,time,sqlite3,logging
 from http.cookies import SimpleCookie
 
 ROLES={'owner','manager','cashier','viewer'}
-MANAGER={'product','party','recipe','purchase','payment','expense','transfer','adjust','reverse','import_products','sale','trade_order_status','trade_order_reprice','inventory_plan','purchase_order_create','purchase_order_status','return','stock_count','shift_open','shift_close'}
-CASHIER={'sale','party','expense','shift_open','shift_close'}
+MANAGER={'product','party','recipe','purchase','payment','expense','transfer','adjust','reverse','import_products','sale','trade_order_status','trade_order_reprice','inventory_plan','purchase_order_create','purchase_order_status','return','stock_count','shift_open','shift_close','print_receipt','print_shift','print_test','open_drawer'}
+CASHIER={'sale','party','expense','shift_open','shift_close','print_receipt','print_shift','open_drawer'}
 SETTINGS={'name','address','phone','gstin','state','gst_enabled','invoice_prefix','printer','fssai','composition','upi_id','round_off'}
 def password_hash(password,salt=None):
     salt=salt or secrets.token_hex(16)

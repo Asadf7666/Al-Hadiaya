@@ -10,6 +10,8 @@ from pathlib import Path
 PRODUCT='al-hadiya-traders'
 PUBLIC_KEY='76066e9cb0498bb685e773002c87de2e3c101716039b0b159b8974a079328561'
 TRIAL_DAYS=60
+# Licences withdrawn after issue. A replacement carries a new id.
+REVOKED={'AHT-OWNER-0001'}
 GRACE_DAYS=7
 WARN_DAYS=14
 DAY=86400
@@ -17,7 +19,7 @@ ROLLBACK_TOLERANCE=2*DAY
 BEGIN='-----BEGIN AL HADIYA LICENCE-----'
 END='-----END AL HADIYA LICENCE-----'
 # Actions that stay available without a valid licence: nothing here writes business records.
-ALWAYS_ALLOWED={'logout','shutdown','backup','licence_install','licence_remove','staff_user','staff_password','staff_disable','staff_enable'}
+ALWAYS_ALLOWED={'logout','shutdown','backup','print_receipt','print_shift','print_test','licence_install','licence_remove','staff_user','staff_password','staff_disable','staff_enable'}
 _SEAL=b'al-hadiya-traders/trial-record/v1'
 
 # ---- Ed25519 (RFC 8032) -----------------------------------------------------
@@ -147,6 +149,7 @@ def parse(text):
     _date(payload.get('issued'),'issue')
     if payload.get('expires') is not None:_date(payload['expires'],'expiry')
     payload['machine']=normalise_machine(payload.get('machine'))
+    if payload.get('id') in REVOKED:raise ValueError('This licence was withdrawn. Install the replacement you were sent.')
     for key in ('id','customer'):
         if not isinstance(payload.get(key),str) or not payload[key].strip():raise ValueError('The licence contents are incomplete.')
     return payload
